@@ -1,0 +1,107 @@
+@startuml
+actor "Game Client" as GC
+participant "Frontend" as F
+participant "Accumulator" as A
+participant "Dispenser" as D
+
+box "Custom Logic Services" #White
+    participant "Validation Service" as VS
+    participant "Data Service" as DS
+    participant "Matchmaker Service" as MS
+    participant "Assignment Service" as AS
+end box
+
+database "Key Value Store" as KV
+database "Stream" as ST
+database "PubSub" as PS
+
+
+GC -> F: CreateTicket
+activate F
+    F -> VS: Validate
+    activate VS
+    return
+
+    F -> DS: GatherData
+    activate DS
+    return
+
+    F -> KV: SETNX Ticket
+    activate KV
+    return
+    F -> ST: Send Ticket Reference
+    activate ST
+    return
+return Ticket
+
+GC -> F: WatchAssignments
+activate F
+    F -> PS: Subscribe Ticket
+    activate PS
+
+        A -> ST: Stream Ticket References
+        activate ST
+        loop until Accumulator reaches max tickets or max delay
+        return Ticket Reference
+
+        A -> KV: GET Ticket
+        activate KV
+        return Ticket
+        end
+
+        A -> MS: MakeMatches
+        activate MS
+        return Matches
+
+        loop for Match in Matches
+            A -> KV: MSETNX Assign Match.Tickets to Match
+            note right
+                this ensures that none
+                of the tickets have
+                already been assigned
+            end note
+            activate KV
+            return
+
+            A -> KV: SET Match
+            activate KV
+            return
+
+            A -> ST: Send Match Reference
+            activate ST
+            return
+        end
+
+        D -> ST: Stream Match References
+        activate ST
+            loop for each Match Reference
+                return Match Reference
+
+                D -> KV: GET Match
+                activate KV
+                return
+
+                D -> AS: Make Assignment
+                activate AS
+                return
+
+                D -> KV: MSET Match.Tickets
+                note right
+                    we update all the tickets
+                    in the match with the
+                    assignment details
+                end note
+                activate KV
+                return
+
+                loop for Ticket in Match
+                    D -> PS: Publish Ticket
+                end
+            end
+
+        return Ticket Reference
+    F -> KV: GET Ticket
+    activate KV
+    return
+return Assignment
+@enduml

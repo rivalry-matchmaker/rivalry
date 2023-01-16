@@ -1,0 +1,4 @@
+package pb
+
+//go:generate mockgen -package mock_pb -destination=mock/frontend.go . FrontendServiceClient,FrontendService_WatchAssignmentsClient,FrontendServiceServer,FrontendService_WatchAssignmentsServer
+//go:generate mockgen -package mock_pb -destination=mock/match_logic.go . ValidationServiceClient,ValidationServiceServer,DataServiceClient,DataServiceServer,MatchMakerServiceClient,MatchMakerService_MakeMatchesClient,MatchMakerServiceServer,MatchMakerService_MakeMatchesServer,AssignmentServiceClient,AssignmentServiceServer

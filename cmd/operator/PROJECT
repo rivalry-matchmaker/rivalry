@@ -1,0 +1,19 @@
+domain: rivalry
+layout:
+- go.kubebuilder.io/v3
+plugins:
+  manifests.sdk.operatorframework.io/v2: {}
+  scorecard.sdk.operatorframework.io/v2: {}
+projectName: operator
+repo: github.com/rivalry-matchmaker/rivalry/cmd/operator
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: rivalry
+  group: rivalry
+  kind: Profile
+  path: github.com/rivalry-matchmaker/rivalry/cmd/operator/api/v1alpha1
+  version: v1alpha1
+version: "3"

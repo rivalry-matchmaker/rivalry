@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rivalry-frontend
+  labels:
+    app: rivalry-frontend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rivalry-frontend
+  template:
+    metadata:
+      labels:
+        app: rivalry-frontend
+    spec:
+      containers:
+        - name: rivalry-frontend
+          image: frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+          - name: grpc
+            containerPort: 50051
+            protocol: TCP

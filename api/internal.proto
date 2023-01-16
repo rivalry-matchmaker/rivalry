@@ -1,0 +1,10 @@
+syntax = "proto3";
+package openmatch;
+option go_package = "github.com/rivalry-matchmaker/rivalry/pkg/pb";
+option csharp_namespace = "OpenMatch";
+
+message StreamTicket {
+  string profile = 1;
+  string pool = 2;
+  string ticket_id = 3;
+}

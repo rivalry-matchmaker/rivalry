@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rivalry-accumulator
+  labels:
+    app: rivalry-accumulator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rivalry-accumulator
+  template:
+    metadata:
+      labels:
+        app: rivalry-accumulator
+    spec:
+      containers:
+        - name: rivalry-accumulator
+          image: accumulator:latest
+          imagePullPolicy: IfNotPresent

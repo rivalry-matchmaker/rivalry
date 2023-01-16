@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rivalry-dispenser
+  labels:
+    app: rivalry-dispenser
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rivalry-dispenser
+  template:
+    metadata:
+      labels:
+        app: rivalry-dispenser
+    spec:
+      containers:
+        - name: rivalry-dispenser
+          image: dispenser:latest
+          imagePullPolicy: IfNotPresent

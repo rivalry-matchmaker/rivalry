@@ -1,0 +1,40 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: matchmaker
+  labels:
+    app: matchmaker
+spec:
+  selector:
+    app: matchmaker
+  type: ClusterIP
+  ports:
+    - name: grpc
+      protocol: TCP
+      port: 50051
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: matchmaker
+  labels:
+    app: matchmaker
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: matchmaker
+  template:
+    metadata:
+      labels:
+        app: matchmaker
+    spec:
+      containers:
+        - name: matchmaker
+          image: 192.168.64.134:5000/rivalry-matchmaker:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 50051
+              protocol: TCP

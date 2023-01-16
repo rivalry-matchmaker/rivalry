@@ -1,0 +1,14 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: rivalry-frontend
+  labels:
+    app: rivalry-frontend
+spec:
+  selector:
+    app: rivalry-frontend
+  type: ClusterIP
+  ports:
+    - name: grpc
+      protocol: TCP
+      port: 50051

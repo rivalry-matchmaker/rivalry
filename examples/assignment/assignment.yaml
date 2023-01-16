@@ -1,0 +1,43 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: assignment
+  labels:
+    app: assignment
+spec:
+  selector:
+    app: assignment
+  type: ClusterIP
+  ports:
+    - name: grpc
+      protocol: TCP
+      port: 50051
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: assignment
+  labels:
+    app: assignment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: assignment
+  template:
+    metadata:
+      labels:
+        app: assignment
+    spec:
+      containers:
+        - name: assignment
+          image: 192.168.64.134:5000/rivalry-assignment:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--address"
+            - ":50051"
+          ports:
+            - name: grpc
+              containerPort: 50051
+              protocol: TCP
