@@ -1,0 +1,4 @@
+package {{ .Package }}
+{{ range .Files }}
+//go:generate mockgen -package mock_pb -destination mock/{{ .File }} . {{ .Interfaces }}
+{{ end }}

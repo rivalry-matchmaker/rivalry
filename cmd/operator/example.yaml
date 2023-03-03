@@ -6,34 +6,18 @@ spec:
   nats_address: nats://nats.default.svc.cluster.local:4222
   redis_address: redis-master.default.svc.cluster.local:6379
   frontend_service:
-    image: 192.168.64.134:5000/rivalry-frontend:latest
+    image: 192.168.64.136:5000/rivalry-frontend:latest
   accumulator_service:
-    image: 192.168.64.134:5000/rivalry-accumulator:latest
+    image: 192.168.64.136:5000/rivalry-accumulator:latest
+  matcher_service:
+    image: 192.168.64.136:5000/rivalry-matcher:latest
   dispenser_service:
-    image: 192.168.64.134:5000/rivalry-dispenser:latest
+    image: 192.168.64.136:5000/rivalry-dispenser:latest
     assignment_target: assignment.default.svc.cluster.local:50051
-  match_profiles:
-  - name: 1v1
+  matchmaking_queues:
+  - name: default
     matchmaker_target: matchmaker.default.svc.cluster.local:50051
-    pools:
-      - name: 1v1-pool
-        tag_present_filters:
-          - tag: 1v1
+    max_tickets: 2
   - name: 2v2
     matchmaker_target: matchmaker.default.svc.cluster.local:50051
-    pools:
-    - name: 2v2-pool
-      tag_present_filters:
-        - tag: 2v2
-  - name: 3v3
-    matchmaker_target: matchmaker.default.svc.cluster.local:50051
-    pools:
-      - name: 3v3-pool
-        tag_present_filters:
-          - tag: 3v3
-  - name: 4v4
-    matchmaker_target: matchmaker.default.svc.cluster.local:50051
-    pools:
-      - name: 4v4-pool
-        tag_present_filters:
-          - tag: 4v4
+    max_tickets: 4

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/rivalry-matchmaker/rivalry/pkg/pb"
+	pb "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -22,19 +22,18 @@ func newMatchCmd() *cobra.Command {
 	matchCmd.MarkPersistentFlagRequired("target")
 	matchCmd.AddCommand(
 		newMatchRequestCmd(),
-		newMatchStatusCmd(),
 	)
 	return matchCmd
 }
 
-func getCli(cmd *cobra.Command) (pb.FrontendServiceClient, error) {
+func getCli(cmd *cobra.Command) (pb.RivalryServiceClient, error) {
 	target, _ := cmd.Flags().GetString("target")
 
 	conn, err := grpc.Dial(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to gRPC: %w", err)
 	}
-	return pb.NewFrontendServiceClient(conn), nil
+	return pb.NewRivalryServiceClient(conn), nil
 }
 
 // matchCmd represents the match command
@@ -45,23 +44,25 @@ func newMatchRequestCmd() *cobra.Command {
 		Long:  ``,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var (
-				cli  pb.FrontendServiceClient
-				err  error
-				tags []string
-				DA   = make(map[string]float64)
-				SA   = make(map[string]string)
+				cli        pb.RivalryServiceClient
+				err        error
+				tags       []string
+				DA         = make(map[string]float64)
+				SA         = make(map[string]string)
+				playerID   string
+				matchQueue string
 			)
 
 			if cli, err = getCli(cmd); err != nil {
 				return err
 			}
 
-			doubleArgs, _ := cmd.Flags().GetString("double_args")
+			doubleArgs, _ := cmd.Flags().GetString("doubles")
 			if err = json.Unmarshal([]byte(doubleArgs), &DA); err != nil {
 				return err
 			}
 
-			stringArgs, _ := cmd.Flags().GetString("string_args")
+			stringArgs, _ := cmd.Flags().GetString("strings")
 			if err = json.Unmarshal([]byte(stringArgs), &SA); err != nil {
 				return err
 			}
@@ -70,56 +71,42 @@ func newMatchRequestCmd() *cobra.Command {
 				return err
 			}
 
-			if resp, err := cli.CreateTicket(context.Background(), &pb.CreateTicketRequest{
-				Ticket: &pb.Ticket{
-					SearchFields: &pb.SearchFields{
-						DoubleArgs: DA,
-						StringArgs: SA,
-						Tags:       tags,
-					},
+			if playerID, err = cmd.Flags().GetString("player_id"); err != nil {
+				return err
+			}
+
+			if matchQueue, err = cmd.Flags().GetString("match_queue"); err != nil {
+				return err
+			}
+
+			if stream, err := cli.Match(context.Background(), &pb.MatchRequest{
+				PlayerId:         playerID,
+				MatchmakingQueue: matchQueue,
+				MatchRequestData: &pb.MatchRequestData{
+					Doubles: DA,
+					Strings: SA,
+					Tags:    tags,
 				},
 			}); err != nil {
 				return err
 			} else {
-				fmt.Println(resp)
+				for {
+					resp, err := stream.Recv()
+					if err != nil {
+						return err
+					}
+					fmt.Println(resp)
+				}
 			}
 			return nil
 		},
 	}
-	matchCmd.Flags().String("double_args", "{}", "The double args match request parameter")
-	matchCmd.Flags().String("string_args", "{}", "The string args match request parameter")
+	matchCmd.Flags().String("player_id", "", "The id of the player wishing to match")
+	matchCmd.MarkFlagRequired("player_id")
+	matchCmd.Flags().String("match_queue", "default", "The queue the player is wishing to match on")
+	matchCmd.Flags().String("doubles", "{}", "The doubles match request parameter")
+	matchCmd.Flags().String("strings", "{}", "The strings match request parameter")
 	matchCmd.Flags().StringSlice("tags", []string{"1v1"}, "The tags match request parameter")
-	return matchCmd
-}
-
-func newMatchStatusCmd() *cobra.Command {
-	var matchCmd = &cobra.Command{
-		Use:   "status",
-		Short: "A brief description of your command",
-		Long:  ``,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var (
-				cli pb.FrontendServiceClient
-				err error
-			)
-			if cli, err = getCli(cmd); err != nil {
-				return err
-			}
-			ticketID, _ := cmd.Flags().GetString("ticket_id")
-			stream, err := cli.WatchAssignments(context.Background(), &pb.WatchAssignmentsRequest{TicketId: ticketID})
-			if err != nil {
-				return err
-			}
-
-			for {
-				resp, err := stream.Recv()
-				if err != nil {
-					return err
-				}
-				fmt.Println(resp)
-			}
-		},
-	}
-	matchCmd.Flags().String("ticket_id", "", "The ticket id")
+	// TODO Party, RTTs
 	return matchCmd
 }

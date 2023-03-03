@@ -1,25 +1,19 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"sync"
 
+	"github.com/go-redis/redis/v8"
+	homedir "github.com/mitchellh/go-homedir"
 	"github.com/rivalry-matchmaker/rivalry/internal/app/frontend"
 	"github.com/rivalry-matchmaker/rivalry/internal/db/kv"
 	"github.com/rivalry-matchmaker/rivalry/internal/db/pubsub"
 	"github.com/rivalry-matchmaker/rivalry/internal/db/stream"
-	"github.com/rivalry-matchmaker/rivalry/internal/dlm"
-	"github.com/rivalry-matchmaker/rivalry/internal/managers/backfill"
-	"github.com/rivalry-matchmaker/rivalry/internal/managers/customlogic"
-	"github.com/rivalry-matchmaker/rivalry/internal/managers/filter"
 	"github.com/rivalry-matchmaker/rivalry/internal/managers/tickets"
-	"github.com/rivalry-matchmaker/rivalry/pkg/pb"
-	"github.com/go-redis/redis/v8"
-	homedir "github.com/mitchellh/go-homedir"
-	"github.com/pkg/errors"
+	pb "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -56,8 +50,6 @@ func NewRootCmd() *cobra.Command {
 				Addr:    redisAddr,
 			}
 			kvStore := kv.NewRedis("om", redisOpts)
-			sortedSet := kvStore.(kv.SortedSet)
-			set := kvStore.(kv.Set)
 
 			natsAddr, _ := cmd.Flags().GetString("nats_addr")
 			streamClient := stream.NewNATS(natsAddr, "om")
@@ -66,43 +58,9 @@ func NewRootCmd() *cobra.Command {
 
 			ticketsManager := tickets.NewManager(kvStore, streamClient, pubsubClient)
 
-			var validationClient pb.ValidationServiceClient
-			validationTarget, _ := cmd.Flags().GetString("validation_target")
-			if len(validationTarget) > 0 {
-				validationConn, err := grpc.Dial(validationTarget, grpc.WithInsecure())
-				if err != nil {
-					return errors.Wrap(err, "failed to connect to assignment service")
-				}
-				validationClient = pb.NewValidationServiceClient(validationConn)
-			}
+			queues, _ := cmd.Flags().GetStringSlice("queues")
 
-			var dataClient pb.DataServiceClient
-			dataTarget, _ := cmd.Flags().GetString("data_target")
-			if len(dataTarget) > 0 {
-				dataConn, err := grpc.Dial(dataTarget, grpc.WithInsecure())
-				if err != nil {
-					return errors.Wrap(err, "failed to connect to assignment service")
-				}
-				dataClient = pb.NewDataServiceClient(dataConn)
-			}
-			log.Trace().Msg("dataClient")
-
-			customlogicManager := customlogic.NewFrontendManager(validationClient, dataClient)
-
-			profilesStr, _ := cmd.Flags().GetString("profiles")
-			var profiles []*pb.MatchProfile
-			err = json.Unmarshal([]byte(profilesStr), &profiles)
-			if err != nil {
-				msg := "failed to unmarshal profiles"
-				log.Err(err).Msg(msg)
-				return errors.Wrap(err, msg)
-			}
-			filterManager := filter.NewManager(profiles)
-
-			backfillManagerDLM := dlm.NewRedisDLM("backfill_manager", redisOpts)
-			backfillManager := backfill.NewManager(kvStore, sortedSet, set, backfillManagerDLM, ticketsManager, 1)
-
-			frontendService := frontend.NewService(ticketsManager, backfillManager, customlogicManager, filterManager)
+			frontendService := frontend.NewService(queues, ticketsManager)
 			defer frontendService.Close()
 
 			grpcServer := grpc.NewServer()
@@ -112,10 +70,10 @@ func NewRootCmd() *cobra.Command {
 				grpcServer.GracefulStop()
 				wg.Wait()
 			}
-			pb.RegisterFrontendServiceServer(grpcServer, frontendService)
+			pb.RegisterRivalryServiceServer(grpcServer, frontendService)
 			reflection.Register(grpcServer)
 
-			log.Info().Msg("gRPC Server Serve on " + address)
+			log.Info().Str("service", cmd.Use).Str("address", address).Msg("gRPC Server Serve")
 			err = grpcServer.Serve(ln)
 			log.Err(err).Msg("frontend finished")
 			wg.Done()
@@ -134,12 +92,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.Flags().String("nats_addr", "", "")
 	rootCmd.MarkFlagRequired("nats_addr")
 
-	rootCmd.Flags().String("profiles", "", "")
-	rootCmd.MarkFlagRequired("profiles")
-
-	rootCmd.Flags().String("validation_target", "", "")
-
-	rootCmd.Flags().String("data_target", "", "")
+	rootCmd.Flags().StringSlice("queues", []string{"default"}, "the list of available matchmaking queues")
 
 	return rootCmd
 }

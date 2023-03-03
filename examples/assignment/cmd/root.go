@@ -1,14 +1,15 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"os"
 	"sync"
 
 	"github.com/rivalry-matchmaker/rivalry/examples/assignment/service"
-	"github.com/rivalry-matchmaker/rivalry/pkg/pb"
+	pb "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
+
+	// "github.com/rivalry-matchmaker/rivalry/pkg/pb"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
@@ -38,20 +39,18 @@ func NewRootCmd() *cobra.Command {
 			}
 
 			frontendTarget, _ := cmd.Flags().GetString("frontend_target")
-			ctx, cancel := context.WithCancel(context.Background())
 			var wg sync.WaitGroup
 			wg.Add(1)
-			assignmentService := service.NewFakeServerAssignmentService(ctx, frontendTarget)
+			assignmentService := service.NewFakeServerAssignmentService(frontendTarget)
 			grpcServer := grpc.NewServer()
 			Stop = func() {
-				cancel()
 				grpcServer.GracefulStop()
 				wg.Wait()
 			}
 			pb.RegisterAssignmentServiceServer(grpcServer, assignmentService)
 			reflection.Register(grpcServer)
 
-			log.Info().Msg("gRPC Server Serve on " + address)
+			log.Info().Str("service", cmd.Use).Str("address", address).Msg("gRPC Server Serve")
 			err = grpcServer.Serve(ln)
 			log.Err(err).Msg("assignment service finished")
 			wg.Done()

@@ -2,23 +2,23 @@ package systemtests
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/nats-io/nats-server/v2/server"
+	matcherCmd "github.com/rivalry-matchmaker/rivalry/cmd/matcher/cmd"
+	api "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stvp/tempredis"
 
+	"github.com/nats-io/nats.go"
 	accumulatorCmd "github.com/rivalry-matchmaker/rivalry/cmd/accumulator/cmd"
 	dispenserCmd "github.com/rivalry-matchmaker/rivalry/cmd/dispenser/cmd"
 	frontendCmd "github.com/rivalry-matchmaker/rivalry/cmd/frontend/cmd"
 	assignmentCmd "github.com/rivalry-matchmaker/rivalry/examples/assignment/cmd"
 	matchmakerCmd "github.com/rivalry-matchmaker/rivalry/examples/matchmaker/cmd"
-	"github.com/rivalry-matchmaker/rivalry/pkg/pb"
-	"github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -28,8 +28,6 @@ var (
 	frontendTarget          = "127.0.0.1:50051"
 	matchmakerTarget        = "127.0.0.1:50052"
 	assignmentServiceTarget = "127.0.0.1:50053"
-
-	profile = &pb.MatchProfile{Name: "everybody", Pools: []*pb.Pool{{Name: "pool_everybody"}}}
 )
 
 func initRedis(s *suite.Suite) *tempredis.Server {
@@ -52,20 +50,22 @@ func initNats(s *suite.Suite) *server.Server {
 }
 
 func initFrontend(s *suite.Suite, redisAddr, natsAddr string) *cobra.Command {
-	profilesBytes, err := json.Marshal([]*pb.MatchProfile{profile})
-	require.NoError(s.T(), err)
 	frontendArgs := []string{
 		"--redis_addr", redisAddr,
 		"--redis_unix",
 		"--nats_addr", natsAddr,
 		"--address", frontendTarget,
-		"--profiles", string(profilesBytes),
 	}
 	frontend := frontendCmd.NewRootCmd()
 	frontend.SetArgs(frontendArgs)
 	frontend.SilenceUsage = true
 	frontend.SilenceErrors = true
-	go frontend.Execute()
+	go func() {
+		err := frontend.Execute()
+		if err != nil {
+			log.Err(err).Msg("failed to execute frontend")
+		}
+	}()
 	return frontend
 }
 
@@ -74,27 +74,51 @@ func stopFrontend() {
 }
 
 func initAccumulator(s *suite.Suite, redisAddr, natsAddr string) *cobra.Command {
-	profilesBytes, err := json.Marshal([]*pb.MatchProfile{profile})
-	require.NoError(s.T(), err)
 	accumulatorArgs := []string{
 		"--redis_addr", redisAddr,
 		"--redis_unix",
 		"--nats_addr", natsAddr,
-		"--profile", profile.Name,
-		"--profiles", string(profilesBytes),
-		"--matchmaker_target", matchmakerTarget,
 		"--max_delay", fmt.Sprint(time.Second.Milliseconds() / 4),
 	}
 	accumulator := accumulatorCmd.NewRootCmd()
 	accumulator.SetArgs(accumulatorArgs)
 	accumulator.SilenceUsage = true
 	accumulator.SilenceErrors = true
-	go accumulator.Execute()
+	go func() {
+		err := accumulator.Execute()
+		if err != nil {
+			log.Err(err).Msg("failed to execute accumulator")
+		}
+	}()
 	return accumulator
 }
 
 func stopAccumulator() {
 	accumulatorCmd.Stop()
+}
+
+func initMatcher(s *suite.Suite, redisAddr, natsAddr string) *cobra.Command {
+	matcherArgs := []string{
+		"--redis_addr", redisAddr,
+		"--redis_unix",
+		"--nats_addr", natsAddr,
+		"--matchmaker_target", matchmakerTarget,
+	}
+	matcher := matcherCmd.NewRootCmd()
+	matcher.SetArgs(matcherArgs)
+	matcher.SilenceUsage = true
+	matcher.SilenceErrors = true
+	go func() {
+		err := matcher.Execute()
+		if err != nil {
+			log.Err(err).Msg("failed to execute matcher")
+		}
+	}()
+	return matcher
+}
+
+func stopMatcher() {
+	matchmakerCmd.Stop()
 }
 
 func initDispenser(_ *suite.Suite, redisAddr, natsAddr string) *cobra.Command {
@@ -109,7 +133,12 @@ func initDispenser(_ *suite.Suite, redisAddr, natsAddr string) *cobra.Command {
 	dispenser.SetArgs(dispenserArgs)
 	dispenser.SilenceUsage = true
 	dispenser.SilenceErrors = true
-	go dispenser.Execute()
+	go func() {
+		err := dispenser.Execute()
+		if err != nil {
+			log.Err(err).Msg("failed to execute dispenser")
+		}
+	}()
 	return dispenser
 }
 
@@ -117,18 +146,20 @@ func stopDispenser() {
 	dispenserCmd.Stop()
 }
 
-func initMatchmaker(backfill bool) *cobra.Command {
+func initMatchmaker() *cobra.Command {
 	matchmaker := matchmakerCmd.NewRootCmd()
 	args := []string{
 		"--address", matchmakerTarget,
 	}
-	if backfill {
-		args = append(args, "--backfill")
-	}
 	matchmaker.SetArgs(args)
 	matchmaker.SilenceUsage = true
 	matchmaker.SilenceErrors = true
-	go matchmaker.Execute()
+	go func() {
+		err := matchmaker.Execute()
+		if err != nil {
+			log.Err(err).Msg("failed to execute matchmaker")
+		}
+	}()
 	return matchmaker
 }
 
@@ -143,7 +174,12 @@ func initAssignmentService() *cobra.Command {
 	})
 	assignmentService.SilenceUsage = true
 	assignmentService.SilenceErrors = true
-	go assignmentService.Execute()
+	go func() {
+		err := assignmentService.Execute()
+		if err != nil {
+			log.Err(err).Msg("failed to execute assignment service")
+		}
+	}()
 	return assignmentService
 }
 
@@ -155,11 +191,11 @@ type player struct {
 	playerID              string
 	s                     suite.Suite
 	wg                    *sync.WaitGroup
-	frontendServiceClient pb.FrontendServiceClient
-	assignment            *pb.Assignment
+	frontendServiceClient api.RivalryServiceClient
+	assignment            *api.GameServer
 }
 
-func newPlayer(s suite.Suite, wg *sync.WaitGroup, frontendServiceClient pb.FrontendServiceClient, playerID string) *player {
+func newPlayer(s suite.Suite, wg *sync.WaitGroup, frontendServiceClient api.RivalryServiceClient, playerID string) *player {
 	return &player{
 		s: s, wg: wg,
 		playerID:              playerID,
@@ -168,19 +204,18 @@ func newPlayer(s suite.Suite, wg *sync.WaitGroup, frontendServiceClient pb.Front
 }
 
 func (p *player) playTheGame(ctx context.Context) {
-	log.Info().Msg("CreateTicket " + p.playerID)
-	resp, err := p.frontendServiceClient.CreateTicket(ctx, &pb.CreateTicketRequest{Ticket: &pb.Ticket{}})
-	require.NoError(p.s.T(), err)
-
-	log.Info().Str("ticket", resp.Id).Msg("WatchAssignments Ticket " + p.playerID)
-	cli, err := p.frontendServiceClient.WatchAssignments(ctx, &pb.WatchAssignmentsRequest{TicketId: resp.Id})
+	log.Info().Msg("CreateMatchRequest " + p.playerID)
+	cli, err := p.frontendServiceClient.Match(ctx, &api.MatchRequest{
+		PlayerId:         p.playerID,
+		MatchmakingQueue: "default",
+	})
 	require.NoError(p.s.T(), err)
 
 	watchResp, err := cli.Recv()
 	log.Info().Interface("assignment", watchResp).Msg("Assigned Ticket " + p.playerID)
 	require.NoError(p.s.T(), err)
-	require.NotNil(p.s.T(), watchResp.Assignment)
-	assert.NotEmpty(p.s.T(), watchResp.Assignment.Connection)
-	p.assignment = watchResp.Assignment
+	require.NotNil(p.s.T(), watchResp.GameServer)
+	assert.NotEmpty(p.s.T(), watchResp.GameServer.GameServerIp)
+	p.assignment = watchResp.GameServer
 	p.wg.Done()
 }

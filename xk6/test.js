@@ -27,18 +27,10 @@ export default function () {
     const host = "192.168.64.134:30706"
 
     // our HTTP request, note that we are saving the response to res, which can be accessed later
-    const res1 = frontend.matchRequest(host, {
-        'search_fields': {
-            'tags': ["1v1"]
-        }
-    });
-
-    const res2 = frontend.matchRequest(host, {
-        'search_fields': {
-            'tags': ["1v1"]
-        }
-    });
-
-    console.log(frontend.matchStatus(host, res1));
-    console.log(frontend.matchStatus(host, res2));
+    console.log(frontend.matchRequest(host, {
+        "matchmaking_queue": "default"
+    }));
+    console.log(frontend.matchRequest(host, {
+        "matchmaking_queue": "default"
+    }));
 }

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/rivalry-matchmaker/rivalry/pkg/pb"
+	pb "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
 	"go.k6.io/k6/js/modules"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -30,7 +30,7 @@ func (*RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
 
 type Client struct {
 	vu     modules.VU
-	cli    pb.FrontendServiceClient
+	cli    pb.RivalryServiceClient
 	cliMux sync.Mutex
 }
 
@@ -46,7 +46,7 @@ func (c *Client) Exports() modules.Exports {
 	return modules.Exports{Default: c}
 }
 
-func (c *Client) getCli(target string) (pb.FrontendServiceClient, error) {
+func (c *Client) getCli(target string) (pb.RivalryServiceClient, error) {
 	c.cliMux.Lock()
 	defer c.cliMux.Unlock()
 	if c.cli != nil {
@@ -56,31 +56,17 @@ func (c *Client) getCli(target string) (pb.FrontendServiceClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to gRPC: %w", err)
 	}
-	c.cli = pb.NewFrontendServiceClient(conn)
+	c.cli = pb.NewRivalryServiceClient(conn)
 	return c.cli, nil
 }
 
-func (c *Client) MatchRequest(target string, ticket *pb.Ticket) (string, error) {
-	cli, err := c.getCli(target)
-	if err != nil {
-		return "", err
-	}
-
-	if resp, err := cli.CreateTicket(c.vu.Context(), &pb.CreateTicketRequest{
-		Ticket: ticket}); err != nil {
-		return "", err
-	} else {
-		return resp.Id, nil
-	}
-}
-
-func (c *Client) MatchStatus(target string, ticketID string) (*pb.Assignment, error) {
+func (c *Client) MatchRequest(target string, ticket *pb.MatchRequest) (*pb.GameServer, error) {
 	cli, err := c.getCli(target)
 	if err != nil {
 		return nil, err
 	}
 
-	stream, err := cli.WatchAssignments(c.vu.Context(), &pb.WatchAssignmentsRequest{TicketId: ticketID})
+	stream, err := cli.Match(c.vu.Context(), ticket);
 	if err != nil {
 		return nil, err
 	}
@@ -90,8 +76,8 @@ func (c *Client) MatchStatus(target string, ticketID string) (*pb.Assignment, er
 		if err != nil {
 			return nil, err
 		}
-		if resp.Assignment != nil {
-			return resp.Assignment, nil
+		if resp.GameServer != nil {
+			return resp.GameServer, nil
 		}
 	}
 }

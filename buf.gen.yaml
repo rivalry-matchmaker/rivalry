@@ -1,0 +1,24 @@
+version: v1
+plugins:
+  # requires google.golang.org/protobuf/cmd/protoc-gen-go to be installed (via go install)
+  - name: go
+    out: pkg/pb
+    opt:
+      - paths=source_relative
+  # requires google.golang.org/grpc/cmd/protoc-gen-go-grpc to be installed (via go install)
+  - name: go-grpc
+    out: pkg/pb
+    opt:
+      - paths=source_relative
+      - require_unimplemented_servers=false
+  # go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@latest
+  - name: doc
+    out: ./
+    opt: markdown,README.md
+    strategy: all
+  - name: grpc-gateway
+    out: pkg/pb
+    opt:
+      - paths=source_relative
+  - name: openapiv2
+    out: docs/swagger

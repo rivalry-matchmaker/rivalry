@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/golang/mock/gomock"
+	"github.com/golang/protobuf/proto"
 	kvMock "github.com/rivalry-matchmaker/rivalry/internal/db/kv/mock"
 	streamMock "github.com/rivalry-matchmaker/rivalry/internal/db/stream/mock"
 	"github.com/rivalry-matchmaker/rivalry/internal/managers/matches"
 	ticketsMock "github.com/rivalry-matchmaker/rivalry/internal/managers/tickets/mock"
-	"github.com/rivalry-matchmaker/rivalry/pkg/pb"
-	"github.com/golang/mock/gomock"
-	"github.com/golang/protobuf/proto"
+	api "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,9 +42,9 @@ func (s *MatchManagerTestSuite) TearDownTest() {
 }
 
 func (s *MatchManagerTestSuite) TestCreateMatch() {
-	match := &pb.Match{AllocateGameserver: true}
-	s.ticketsManager.EXPECT().AssignTicketsToMatch(ctx, match).DoAndReturn(
-		func(_ context.Context, match *pb.Match) (bool, error) {
+	match := &api.Match{}
+	s.ticketsManager.EXPECT().AssignMatchRequestsToMatch(ctx, match).DoAndReturn(
+		func(_ context.Context, match *api.Match) (bool, error) {
 			assert.NotEmpty(s.T(), match.MatchId)
 			return true, nil
 		})
@@ -55,43 +55,30 @@ func (s *MatchManagerTestSuite) TestCreateMatch() {
 	assert.True(s.T(), outcome)
 }
 
-func (s *MatchManagerTestSuite) TestCreateMatchWithoutAllocation() {
-	match := &pb.Match{AllocateGameserver: false}
-	s.ticketsManager.EXPECT().AssignTicketsToMatch(ctx, match).DoAndReturn(
-		func(_ context.Context, match *pb.Match) (bool, error) {
-			assert.NotEmpty(s.T(), match.MatchId)
-			return true, nil
-		})
-	s.store.EXPECT().Set(ctx, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
-	outcome, err := s.manager.CreateMatch(ctx, match)
-	assert.NoError(s.T(), err)
-	assert.True(s.T(), outcome)
-}
-
 func (s *MatchManagerTestSuite) TestCreateMatchesFailSetReleasesTickets() {
-	match := &pb.Match{AllocateGameserver: true}
-	s.ticketsManager.EXPECT().AssignTicketsToMatch(ctx, match).DoAndReturn(
-		func(_ context.Context, match *pb.Match) (bool, error) {
+	match := &api.Match{}
+	s.ticketsManager.EXPECT().AssignMatchRequestsToMatch(ctx, match).DoAndReturn(
+		func(_ context.Context, match *api.Match) (bool, error) {
 			assert.NotEmpty(s.T(), match.MatchId)
 			return true, nil
 		})
 	s.store.EXPECT().Set(ctx, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("fail"))
-	s.ticketsManager.EXPECT().ReleaseTicketsFromMatch(ctx, match)
+	s.ticketsManager.EXPECT().ReleaseMatchRequestsFromMatch(ctx, match)
 	outcome, err := s.manager.CreateMatch(ctx, match)
 	assert.Error(s.T(), err)
 	assert.False(s.T(), outcome)
 }
 
 func (s *MatchManagerTestSuite) TestCreateMatchesFailSendMessageReleasesTicketsAndDeletesMatch() {
-	match := &pb.Match{AllocateGameserver: true}
-	s.ticketsManager.EXPECT().AssignTicketsToMatch(ctx, match).DoAndReturn(
-		func(_ context.Context, match *pb.Match) (bool, error) {
+	match := &api.Match{}
+	s.ticketsManager.EXPECT().AssignMatchRequestsToMatch(ctx, match).DoAndReturn(
+		func(_ context.Context, match *api.Match) (bool, error) {
 			assert.NotEmpty(s.T(), match.MatchId)
 			return true, nil
 		})
 	s.store.EXPECT().Set(ctx, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
 	s.streamClient.EXPECT().SendMessage(matches.GetUnassignedMatchesTopic(), gomock.Any()).Return(fmt.Errorf("fail"))
-	s.ticketsManager.EXPECT().ReleaseTicketsFromMatch(ctx, match)
+	s.ticketsManager.EXPECT().ReleaseMatchRequestsFromMatch(ctx, match)
 	s.store.EXPECT().Del(ctx, gomock.Any(), gomock.Any())
 	outcome, err := s.manager.CreateMatch(ctx, match)
 	assert.Error(s.T(), err)
@@ -99,7 +86,7 @@ func (s *MatchManagerTestSuite) TestCreateMatchesFailSendMessageReleasesTicketsA
 }
 
 func (s *MatchManagerTestSuite) TestStreamMatches() {
-	match := &pb.Match{MatchId: xid.New().String()}
+	match := &api.Match{MatchId: xid.New().String()}
 	matchBytes, err := proto.Marshal(match)
 	require.NoError(s.T(), err)
 	s.streamClient.EXPECT().Subscribe(matches.GetUnassignedMatchesTopic(), gomock.Any()).Do(
@@ -109,7 +96,7 @@ func (s *MatchManagerTestSuite) TestStreamMatches() {
 		})
 	s.store.EXPECT().Get(ctx, gomock.Any(), match.MatchId).Return(matchBytes, nil)
 	assert.NoError(s.T(), s.manager.StreamMatches(ctx,
-		func(ctx context.Context, m *pb.Match) {
+		func(ctx context.Context, m *api.Match) {
 			assert.Equal(s.T(), match.MatchId, m.MatchId)
 		}))
 }

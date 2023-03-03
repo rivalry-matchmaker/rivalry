@@ -14,6 +14,9 @@ var (
 	//go:embed accumulator_deployment.yaml
 	AccumulatorDeployment []byte
 
+	//go:embed matcher_deployment.yaml
+	MatcherDeployment []byte
+
 	//go:embed dispenser_deployment.yaml
 	DispenserDeployment []byte
 )

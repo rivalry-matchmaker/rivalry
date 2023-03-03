@@ -1,0 +1,6 @@
+package v1
+
+//go:generate mockgen -package mock_pb -destination mock/match_logic_grpc.pb.go . MatchMakerServiceClient,MatchMakerService_MakeMatchesClient,MatchMakerServiceServer,UnsafeMatchMakerServiceServer,MatchMakerService_MakeMatchesServer,AssignmentServiceClient,AssignmentServiceServer,UnsafeAssignmentServiceServer
+
+//go:generate mockgen -package mock_pb -destination mock/external_grpc.pb.go . RivalryServiceClient,RivalryService_MatchClient,RivalryServiceServer,UnsafeRivalryServiceServer,RivalryService_MatchServer
+

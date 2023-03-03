@@ -32,7 +32,7 @@ spec:
     spec:
       containers:
         - name: matchmaker
-          image: 192.168.64.134:5000/rivalry-matchmaker:latest
+          image: 192.168.64.136:5000/rivalry-matchmaker:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: grpc

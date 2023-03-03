@@ -7,7 +7,7 @@ import (
 	"github.com/rivalry-matchmaker/rivalry/internal/managers/customlogic"
 	"github.com/rivalry-matchmaker/rivalry/internal/managers/matches"
 	"github.com/rivalry-matchmaker/rivalry/internal/managers/tickets"
-	"github.com/rivalry-matchmaker/rivalry/pkg/pb"
+	pb "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
 	"github.com/rs/zerolog/log"
 )
 
@@ -34,17 +34,14 @@ func NewDispenser(matchesManager matches.Manager, ticketsManager tickets.Manager
 // Run is the main method for the service
 func (d *dispenser) Run(ctx context.Context) error {
 	err := d.matchesManager.StreamMatches(ctx, func(ctx context.Context, match *pb.Match) {
-		if match.Backfill != nil {
-			// TODO
-		} else {
-			assignment, err := d.makeAssignment(ctx, match)
-			if err != nil {
-				log.Err(err).Str("match_id", match.MatchId).Msg("failed to make assignment")
-				d.requeueMatch(ctx, match)
-				return
-			}
-			d.addAssignmentToTickets(ctx, match, assignment)
+
+		assignment, err := d.makeAssignment(ctx, match)
+		if err != nil {
+			log.Err(err).Str("match_id", match.MatchId).Msg("failed to make assignment")
+			d.requeueMatch(ctx, match)
+			return
 		}
+		d.addAssignmentToTickets(ctx, match, assignment)
 	})
 	if err != nil {
 		return err
@@ -53,7 +50,7 @@ func (d *dispenser) Run(ctx context.Context) error {
 	return nil
 }
 
-func (d *dispenser) makeAssignment(ctx context.Context, match *pb.Match) (assignment *pb.Assignment, err error) {
+func (d *dispenser) makeAssignment(ctx context.Context, match *pb.Match) (assignment *pb.GameServer, err error) {
 	err = backoff.Retry(ctx, func() error {
 		var err error
 		assignment, err = d.customLogicManager.MakeAssignment(ctx, match)
@@ -71,9 +68,9 @@ func (d *dispenser) requeueMatch(ctx context.Context, match *pb.Match) {
 	}
 }
 
-func (d *dispenser) addAssignmentToTickets(ctx context.Context, match *pb.Match, assignment *pb.Assignment) {
+func (d *dispenser) addAssignmentToTickets(ctx context.Context, match *pb.Match, assignment *pb.GameServer) {
 	err := backoff.Retry(ctx, func() error {
-		return d.ticketsManager.AddAssignmentToTickets(ctx, assignment, match.Tickets)
+		return d.ticketsManager.AddAssignmentToMatchRequests(ctx, assignment, match)
 	}, backoff.Exponential())
 	if err != nil {
 		log.Err(err).Str("match_id", match.MatchId).Msg("failed to add assignment to ticket")

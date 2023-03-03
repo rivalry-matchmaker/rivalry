@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/rivalry-matchmaker/rivalry/internal/app/backend"
 	"github.com/rivalry-matchmaker/rivalry/internal/backoff"
 	customlogic "github.com/rivalry-matchmaker/rivalry/internal/managers/customlogic/mock"
 	matches "github.com/rivalry-matchmaker/rivalry/internal/managers/matches/mock"
 	ticketsMock "github.com/rivalry-matchmaker/rivalry/internal/managers/tickets/mock"
-	"github.com/rivalry-matchmaker/rivalry/pkg/pb"
-	"github.com/golang/mock/gomock"
+	pb "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/suite"
 )
@@ -36,11 +36,11 @@ func (s *DispenserTestSuite) SetupTest() {
 }
 
 func (s *DispenserTestSuite) TestDispenser() {
-	assignment := &pb.Assignment{Connection: "foo"}
+	assignment := &pb.GameServer{GameServerIp: "foo"}
 	match := &pb.Match{
 		MatchId: xid.New().String(),
-		Tickets: []*pb.Ticket{
-			{Id: xid.New().String()},
+		MatchRequestIds: []string{
+			xid.New().String(),
 		},
 	}
 	s.matchesManager.EXPECT().StreamMatches(s.ctx, gomock.Any()).Do(
@@ -49,7 +49,7 @@ func (s *DispenserTestSuite) TestDispenser() {
 			return nil
 		})
 	s.customlogicManager.EXPECT().MakeAssignment(s.ctx, gomock.Any()).Return(assignment, nil)
-	s.ticketsManager.EXPECT().AddAssignmentToTickets(s.ctx, assignment, match.Tickets)
+	s.ticketsManager.EXPECT().AddAssignmentToMatchRequests(s.ctx, assignment, match)
 	go func() {
 		time.Sleep(time.Second / 2)
 		s.cancel()
@@ -60,8 +60,8 @@ func (s *DispenserTestSuite) TestDispenser() {
 func (s *DispenserTestSuite) TestDispenserRequeueFailedAssignment() {
 	match := &pb.Match{
 		MatchId: xid.New().String(),
-		Tickets: []*pb.Ticket{
-			{Id: xid.New().String()},
+		MatchRequestIds: []string{
+			xid.New().String(),
 		},
 	}
 	s.matchesManager.EXPECT().StreamMatches(s.ctx, gomock.Any()).Do(

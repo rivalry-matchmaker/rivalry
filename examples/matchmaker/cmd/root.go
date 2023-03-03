@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/rivalry-matchmaker/rivalry/examples/matchmaker/service"
-	"github.com/rivalry-matchmaker/rivalry/pkg/pb"
+	api "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
@@ -36,8 +36,7 @@ func NewRootCmd() *cobra.Command {
 				log.Fatal().Msgf("cannot start tcp server on address %s: %s", address, err)
 			}
 
-			backfill, _ := cmd.Flags().GetBool("backfill")
-			mm := service.NewPairsMatchmaker(backfill)
+			mm := service.NewPairsMatchmaker()
 			grpcServer := grpc.NewServer()
 			var wg sync.WaitGroup
 			wg.Add(1)
@@ -45,10 +44,10 @@ func NewRootCmd() *cobra.Command {
 				grpcServer.GracefulStop()
 				wg.Wait()
 			}
-			pb.RegisterMatchMakerServiceServer(grpcServer, mm)
+			api.RegisterMatchMakerServiceServer(grpcServer, mm)
 			reflection.Register(grpcServer)
 
-			log.Info().Msg("gRPC Server Serve on " + address)
+			log.Info().Str("service", cmd.Use).Str("address", address).Msg("gRPC Server Serve")
 			err = grpcServer.Serve(ln)
 			log.Err(err).Msg("matchmaker finished")
 			wg.Done()
@@ -58,7 +57,6 @@ func NewRootCmd() *cobra.Command {
 	cobra.OnInitialize(initConfig)
 	pf := rootCmd.PersistentFlags()
 	pf.String("address", ":50051", "the address this service listens on")
-	pf.Bool("backfill", false, "")
 	pf.StringVar(&cfgFile, "config", "", "config file (default is $HOME/.matchmaker.yaml)")
 	return rootCmd
 }

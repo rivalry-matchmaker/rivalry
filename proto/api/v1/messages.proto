@@ -1,0 +1,29 @@
+syntax = "proto3";
+package api.v1;
+option go_package = "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1";
+
+message MatchRequestData {
+  map<string, double> doubles = 1 [json_name = "doubles"];
+  map<string, string> strings = 2 [json_name = "strings"];
+  repeated string tags = 3 [json_name = "tags"];
+  bytes extra_data = 4 [json_name = "extra_data"];
+}
+
+message RTT {
+  string host = 1 [json_name="host"];
+  int64 milliseconds = 2 [json_name="milliseconds"];
+}
+
+message GameServer {
+  // game_server_ip is the IP address of the allocated GameServer, or empty if none is allocated
+  string game_server_ip = 1 [json_name = "game_server_ip"];
+  // game_server_ports maps labels to ports on the allocated GameServer
+  repeated GameServerPort game_server_ports = 2 [json_name = "game_server_ports"];
+}
+
+message GameServerPort {
+  // name of the port
+  string name = 1 [json_name = "name"];
+  // port number
+  int32 port = 2 [json_name = "port"];
+}

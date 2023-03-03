@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rivalry-matcher
+  labels:
+    app: rivalry-matcher
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rivalry-matcher
+  template:
+    metadata:
+      labels:
+        app: rivalry-matcher
+    spec:
+      containers:
+        - name: rivalry-matcher
+          image: matcher:latest
+          imagePullPolicy: IfNotPresent

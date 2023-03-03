@@ -32,7 +32,7 @@ spec:
     spec:
       containers:
         - name: assignment
-          image: 192.168.64.134:5000/rivalry-assignment:latest
+          image: 192.168.64.136:5000/rivalry-assignment:latest
           imagePullPolicy: IfNotPresent
           args:
             - "--address"

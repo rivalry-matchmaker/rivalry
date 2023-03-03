@@ -6,6 +6,9 @@ import (
 	"os"
 	"sync"
 
+	"github.com/go-redis/redis/v8"
+	homedir "github.com/mitchellh/go-homedir"
+	"github.com/pkg/errors"
 	"github.com/rivalry-matchmaker/rivalry/internal/app/backend"
 	"github.com/rivalry-matchmaker/rivalry/internal/db/kv"
 	"github.com/rivalry-matchmaker/rivalry/internal/db/pubsub"
@@ -13,10 +16,7 @@ import (
 	"github.com/rivalry-matchmaker/rivalry/internal/managers/customlogic"
 	"github.com/rivalry-matchmaker/rivalry/internal/managers/matches"
 	"github.com/rivalry-matchmaker/rivalry/internal/managers/tickets"
-	"github.com/rivalry-matchmaker/rivalry/pkg/pb"
-	"github.com/go-redis/redis/v8"
-	homedir "github.com/mitchellh/go-homedir"
-	"github.com/pkg/errors"
+	api "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -41,7 +41,7 @@ func NewRootCmd() *cobra.Command {
 			if err != nil {
 				return errors.Wrap(err, "failed to connect to assignment service")
 			}
-			assignmentClient := pb.NewAssignmentServiceClient(assignmentConn)
+			assignmentClient := api.NewAssignmentServiceClient(assignmentConn)
 			assignmentManager := customlogic.NewAssignmentManager(assignmentClient)
 
 			redisAddr, _ := cmd.Flags().GetString("redis_addr")

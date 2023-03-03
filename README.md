@@ -1,41 +1,576 @@
-# rivalry
+# Protocol Documentation
+<a name="top"></a>
 
-This is intended as a rework of open-match. 
-The original objective was to move from having a synchroniser singleton, 
-to using a streaming database which should increase scope for capacity and resilience.
+## Table of Contents
 
-Other beneficial design changes:
-1. In open-match Tickets can be submitted into the system that do not match any 
-   existing match profiles. In rivalry a ticket is sent onto a stream specific 
-   to the profile the ticket matches, if a ticket doesn't match a profile an error 
-   is returned to the client.
-2. In open-match frontend.WatchAssignments polls the database 
-   (every 30 milliseconds by default) until the Assignment value is no longer empty.
-   rivalry uses a publish-subscribe system to announce when tickets have been updated.
-3. In open-match the director is a singleton that triggers when matchmaking occurs, 
-   disseminates match profiles to the open-match backend, allocate a game server and  
-   assign the game server connection string to the tickets. 
+- [api/v1/messages.proto](#api_v1_messages-proto)
+    - [GameServer](#api-v1-GameServer)
+    - [GameServerPort](#api-v1-GameServerPort)
+    - [MatchRequestData](#api-v1-MatchRequestData)
+    - [MatchRequestData.DoublesEntry](#api-v1-MatchRequestData-DoublesEntry)
+    - [MatchRequestData.StringsEntry](#api-v1-MatchRequestData-StringsEntry)
+    - [RTT](#api-v1-RTT)
+  
+- [api/v1/external.proto](#api_v1_external-proto)
+    - [MatchRequest](#api-v1-MatchRequest)
+    - [MatchResponse](#api-v1-MatchResponse)
+    - [PartyData](#api-v1-PartyData)
+  
+    - [RivalryService](#api-v1-RivalryService)
+  
+- [api/v1/internal.proto](#api_v1_internal-proto)
+    - [AccumulatedStreamTicket](#api-v1-AccumulatedStreamTicket)
+    - [StreamTicket](#api-v1-StreamTicket)
+  
+- [api/v1/match_logic.proto](#api_v1_match_logic-proto)
+    - [MakeAssignmentRequest](#api-v1-MakeAssignmentRequest)
+    - [MakeAssignmentResponse](#api-v1-MakeAssignmentResponse)
+    - [MakeMatchesRequest](#api-v1-MakeMatchesRequest)
+    - [MakeMatchesResponse](#api-v1-MakeMatchesResponse)
+    - [Match](#api-v1-Match)
+    - [Submission](#api-v1-Submission)
+  
+    - [AssignmentService](#api-v1-AssignmentService)
+    - [MatchMakerService](#api-v1-MatchMakerService)
+  
+- [db/v1/documents.proto](#db_v1_documents-proto)
+    - [GameServer](#db-v1-GameServer)
+    - [GameServerPort](#db-v1-GameServerPort)
+    - [MatchRequest](#db-v1-MatchRequest)
+    - [MatchRequestData](#db-v1-MatchRequestData)
+    - [MatchRequestData.DoublesEntry](#db-v1-MatchRequestData-DoublesEntry)
+    - [MatchRequestData.StringsEntry](#db-v1-MatchRequestData-StringsEntry)
+    - [RTT](#db-v1-RTT)
+  
+- [Scalar Value Types](#scalar-value-types)
 
-Below is a sequence diagram that gives an overview of how rivalry works
-![uml](./docs/sequence.png)
 
-Remaining Work:
-1. Add Backfill logic into dispensor
-2. Tidy away data once matches are no longer needed
-3. Add configure for Kubernetes deployment
-   1. Helm Chart
-   2. Create an Operator and Match Profile CRD that ensures we have an accumulator deployment for each Match Profile
-4. Load testing
 
-Improvement Ideas:
-1. Split the accumulator up into 2 services, moving the work of makeMatches into another service that would consume
-   batches of Tickets and Backfill from the accumulator and attempt to create Matches from them.
-2. If we are worried about tickets getting lost in the streams we could update an index, with the current time, 
-   each time a service handles a Ticket and create a worker to requeue tickets that have an index over a threshold. 
-3. Match Profiles have a very limited ability to filter, this could be expanded, perhaps to be more like  a
-   [Boolean Query](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-bool-query.html)
-   in Elasticsearch.
-4. Group Matchmaking
+<a name="api_v1_messages-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
 
-Chores:
-1. Use buf to generate and lint proto files
+## api/v1/messages.proto
+
+
+
+<a name="api-v1-GameServer"></a>
+
+### GameServer
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| game_server_ip | [string](#string) |  | game_server_ip is the IP address of the allocated GameServer, or empty if none is allocated |
+| game_server_ports | [GameServerPort](#api-v1-GameServerPort) | repeated | game_server_ports maps labels to ports on the allocated GameServer |
+
+
+
+
+
+
+<a name="api-v1-GameServerPort"></a>
+
+### GameServerPort
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | name of the port |
+| port | [int32](#int32) |  | port number |
+
+
+
+
+
+
+<a name="api-v1-MatchRequestData"></a>
+
+### MatchRequestData
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| doubles | [MatchRequestData.DoublesEntry](#api-v1-MatchRequestData-DoublesEntry) | repeated |  |
+| strings | [MatchRequestData.StringsEntry](#api-v1-MatchRequestData-StringsEntry) | repeated |  |
+| tags | [string](#string) | repeated |  |
+| extra_data | [bytes](#bytes) |  |  |
+
+
+
+
+
+
+<a name="api-v1-MatchRequestData-DoublesEntry"></a>
+
+### MatchRequestData.DoublesEntry
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| key | [string](#string) |  |  |
+| value | [double](#double) |  |  |
+
+
+
+
+
+
+<a name="api-v1-MatchRequestData-StringsEntry"></a>
+
+### MatchRequestData.StringsEntry
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| key | [string](#string) |  |  |
+| value | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="api-v1-RTT"></a>
+
+### RTT
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| host | [string](#string) |  |  |
+| milliseconds | [int64](#int64) |  |  |
+
+
+
+
+
+ 
+
+ 
+
+ 
+
+ 
+
+
+
+<a name="api_v1_external-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## api/v1/external.proto
+
+
+
+<a name="api-v1-MatchRequest"></a>
+
+### MatchRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  | a UUID generated by the client |
+| player_id | [string](#string) |  | the ID of this player |
+| party_data | [PartyData](#api-v1-PartyData) |  | matchmaking data specific to the party |
+| match_request_data | [MatchRequestData](#api-v1-MatchRequestData) |  | matchmaking data specific to this player |
+| matchmaking_queue | [string](#string) |  | A queue is a collection of tickets to be matched together, it controls how tickets are matched |
+| rtts | [RTT](#api-v1-RTT) | repeated | A list of latency data for game server instances |
+
+
+
+
+
+
+<a name="api-v1-MatchResponse"></a>
+
+### MatchResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| game_server | [GameServer](#api-v1-GameServer) |  |  |
+
+
+
+
+
+
+<a name="api-v1-PartyData"></a>
+
+### PartyData
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| party_members | [string](#string) | repeated | a list of player ids that are in a party with this player |
+
+
+
+
+
+ 
+
+ 
+
+ 
+
+
+<a name="api-v1-RivalryService"></a>
+
+### RivalryService
+
+
+| Method Name | Request Type | Response Type | Description |
+| ----------- | ------------ | ------------- | ------------|
+| Match | [MatchRequest](#api-v1-MatchRequest) | [MatchResponse](#api-v1-MatchResponse) stream | route into matchmaking |
+
+ 
+
+
+
+<a name="api_v1_internal-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## api/v1/internal.proto
+
+
+
+<a name="api-v1-AccumulatedStreamTicket"></a>
+
+### AccumulatedStreamTicket
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| StreamTickets | [StreamTicket](#api-v1-StreamTicket) | repeated |  |
+
+
+
+
+
+
+<a name="api-v1-StreamTicket"></a>
+
+### StreamTicket
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| matchmaking_queue | [string](#string) |  | which matchmaking queue the match requests belong to |
+| match_request_id | [string](#string) |  | the unique id of the match request |
+| number_of_players | [int32](#int32) |  | the number of players the match request represents |
+
+
+
+
+
+ 
+
+ 
+
+ 
+
+ 
+
+
+
+<a name="api_v1_match_logic-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## api/v1/match_logic.proto
+
+
+
+<a name="api-v1-MakeAssignmentRequest"></a>
+
+### MakeAssignmentRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| match | [Match](#api-v1-Match) |  |  |
+
+
+
+
+
+
+<a name="api-v1-MakeAssignmentResponse"></a>
+
+### MakeAssignmentResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| game_server | [GameServer](#api-v1-GameServer) |  |  |
+
+
+
+
+
+
+<a name="api-v1-MakeMatchesRequest"></a>
+
+### MakeMatchesRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| submissions | [Submission](#api-v1-Submission) | repeated |  |
+
+
+
+
+
+
+<a name="api-v1-MakeMatchesResponse"></a>
+
+### MakeMatchesResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| match | [Match](#api-v1-Match) |  |  |
+
+
+
+
+
+
+<a name="api-v1-Match"></a>
+
+### Match
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| match_id | [string](#string) |  | A UUID that should be passed through the stack for tracing. |
+| matchmaking_queue | [string](#string) |  | Name of the matchmaking queue this match was created on. |
+| match_request_ids | [string](#string) | repeated | Match Request IDs that belong to this match. |
+| player_ids | [string](#string) | repeated | list of player ids linked to this request |
+| rtts | [RTT](#api-v1-RTT) | repeated | A list of average latency data for game server instances |
+
+
+
+
+
+
+<a name="api-v1-Submission"></a>
+
+### Submission
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  | a UUID generated by the client |
+| members | [string](#string) | repeated | list of player ids linked to this request |
+| match_request_data | [MatchRequestData](#api-v1-MatchRequestData) |  | matchmaking data specific to this player / group |
+| matchmaking_queue | [string](#string) |  | A queue is a collection of tickets to be matched together, it controls how tickets are matched |
+| rtts | [RTT](#api-v1-RTT) | repeated | A list of latency data for game server instances |
+| create_time | [int64](#int64) |  | record the time the ticket was created in the db |
+
+
+
+
+
+ 
+
+ 
+
+ 
+
+
+<a name="api-v1-AssignmentService"></a>
+
+### AssignmentService
+
+
+| Method Name | Request Type | Response Type | Description |
+| ----------- | ------------ | ------------- | ------------|
+| MakeAssignment | [MakeAssignmentRequest](#api-v1-MakeAssignmentRequest) | [MakeAssignmentResponse](#api-v1-MakeAssignmentResponse) |  |
+
+
+<a name="api-v1-MatchMakerService"></a>
+
+### MatchMakerService
+
+
+| Method Name | Request Type | Response Type | Description |
+| ----------- | ------------ | ------------- | ------------|
+| MakeMatches | [MakeMatchesRequest](#api-v1-MakeMatchesRequest) | [MakeMatchesResponse](#api-v1-MakeMatchesResponse) stream | MakeMatches takes a MatchProfile and a map of pool names to ticket slices, and creates a slice of Match&#39;s from that information |
+
+ 
+
+
+
+<a name="db_v1_documents-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## db/v1/documents.proto
+
+
+
+<a name="db-v1-GameServer"></a>
+
+### GameServer
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| game_server_ip | [string](#string) |  | game_server_ip is the IP address of the allocated GameServer, or empty if none is allocated |
+| game_server_ports | [GameServerPort](#db-v1-GameServerPort) | repeated | game_server_ports maps labels to ports on the allocated GameServer |
+
+
+
+
+
+
+<a name="db-v1-GameServerPort"></a>
+
+### GameServerPort
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | name of the port |
+| port | [int32](#int32) |  | port number |
+
+
+
+
+
+
+<a name="db-v1-MatchRequest"></a>
+
+### MatchRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  | a UUID generated by the client |
+| members | [string](#string) | repeated | list of player ids linked to this request |
+| match_request_data | [MatchRequestData](#db-v1-MatchRequestData) |  | matchmaking data specific to this player / group |
+| matchmaking_queue | [string](#string) |  | A queue is a collection of tickets to be matched together, it controls how tickets are matched |
+| rtts | [RTT](#db-v1-RTT) | repeated | A list of latency data for game server instances |
+| create_time | [int64](#int64) |  | record the time the ticket was created in the db |
+| game_server | [GameServer](#db-v1-GameServer) |  | the result of matchmaking |
+
+
+
+
+
+
+<a name="db-v1-MatchRequestData"></a>
+
+### MatchRequestData
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| doubles | [MatchRequestData.DoublesEntry](#db-v1-MatchRequestData-DoublesEntry) | repeated |  |
+| strings | [MatchRequestData.StringsEntry](#db-v1-MatchRequestData-StringsEntry) | repeated |  |
+| tags | [string](#string) | repeated |  |
+| extra_data | [bytes](#bytes) |  |  |
+
+
+
+
+
+
+<a name="db-v1-MatchRequestData-DoublesEntry"></a>
+
+### MatchRequestData.DoublesEntry
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| key | [string](#string) |  |  |
+| value | [double](#double) |  |  |
+
+
+
+
+
+
+<a name="db-v1-MatchRequestData-StringsEntry"></a>
+
+### MatchRequestData.StringsEntry
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| key | [string](#string) |  |  |
+| value | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="db-v1-RTT"></a>
+
+### RTT
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| host | [string](#string) |  |  |
+| milliseconds | [int64](#int64) |  |  |
+
+
+
+
+
+ 
+
+ 
+
+ 
+
+ 
+
+
+
+## Scalar Value Types
+
+| .proto Type | Notes | C++ | Java | Python | Go | C# | PHP | Ruby |
+| ----------- | ----- | --- | ---- | ------ | -- | -- | --- | ---- |
+| <a name="double" /> double |  | double | double | float | float64 | double | float | Float |
+| <a name="float" /> float |  | float | float | float | float32 | float | float | Float |
+| <a name="int32" /> int32 | Uses variable-length encoding. Inefficient for encoding negative numbers – if your field is likely to have negative values, use sint32 instead. | int32 | int | int | int32 | int | integer | Bignum or Fixnum (as required) |
+| <a name="int64" /> int64 | Uses variable-length encoding. Inefficient for encoding negative numbers – if your field is likely to have negative values, use sint64 instead. | int64 | long | int/long | int64 | long | integer/string | Bignum |
+| <a name="uint32" /> uint32 | Uses variable-length encoding. | uint32 | int | int/long | uint32 | uint | integer | Bignum or Fixnum (as required) |
+| <a name="uint64" /> uint64 | Uses variable-length encoding. | uint64 | long | int/long | uint64 | ulong | integer/string | Bignum or Fixnum (as required) |
+| <a name="sint32" /> sint32 | Uses variable-length encoding. Signed int value. These more efficiently encode negative numbers than regular int32s. | int32 | int | int | int32 | int | integer | Bignum or Fixnum (as required) |
+| <a name="sint64" /> sint64 | Uses variable-length encoding. Signed int value. These more efficiently encode negative numbers than regular int64s. | int64 | long | int/long | int64 | long | integer/string | Bignum |
+| <a name="fixed32" /> fixed32 | Always four bytes. More efficient than uint32 if values are often greater than 2^28. | uint32 | int | int | uint32 | uint | integer | Bignum or Fixnum (as required) |
+| <a name="fixed64" /> fixed64 | Always eight bytes. More efficient than uint64 if values are often greater than 2^56. | uint64 | long | int/long | uint64 | ulong | integer/string | Bignum |
+| <a name="sfixed32" /> sfixed32 | Always four bytes. | int32 | int | int | int32 | int | integer | Bignum or Fixnum (as required) |
+| <a name="sfixed64" /> sfixed64 | Always eight bytes. | int64 | long | int/long | int64 | long | integer/string | Bignum |
+| <a name="bool" /> bool |  | bool | boolean | boolean | bool | bool | boolean | TrueClass/FalseClass |
+| <a name="string" /> string | A string must always contain UTF-8 encoded or 7-bit ASCII text. | string | String | str/unicode | string | string | string | String (UTF-8) |
+| <a name="bytes" /> bytes | May contain any arbitrary sequence of bytes. | string | ByteString | str | []byte | ByteString | string | String (ASCII-8BIT) |
+

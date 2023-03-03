@@ -1,108 +1,32 @@
 package customlogic
 
-//go:generate mockgen -package mock -destination=mock/customlogic.go . FrontendManager,MatchmakerManager,AssignmentManager
+//go:generate mockgen -package mock -destination=mock/customlogic.go . MatchmakerManager,AssignmentManager
 
 import (
 	"context"
 	"io"
 
-	"github.com/rivalry-matchmaker/rivalry/pkg/pb"
-	"github.com/rs/zerolog/log"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	api "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
 )
-
-// FrontendManager provides the interface for calling custom frontend logic
-type FrontendManager interface {
-	Validate(ctx context.Context, ticket *pb.Ticket) error
-	GatherData(ctx context.Context, ticket *pb.Ticket) (*pb.Ticket, error)
-}
-
-type frontendManager struct {
-	validationClient pb.ValidationServiceClient
-	dataClient       pb.DataServiceClient
-}
-
-// NewFrontendManager returns a new FrontendManager
-func NewFrontendManager(validationClient pb.ValidationServiceClient,
-	dataClient pb.DataServiceClient) FrontendManager {
-	return &frontendManager{
-		validationClient: validationClient,
-		dataClient:       dataClient,
-	}
-}
-
-// Validate calls the Validate custom logic
-func (m *frontendManager) Validate(ctx context.Context, ticket *pb.Ticket) error {
-	if m.validationClient == nil {
-		return nil
-	}
-	_, err := m.validationClient.Validate(ctx, ticket)
-	if err != nil {
-		s, ok := status.FromError(err)
-		if !ok {
-			return err
-		}
-		if s.Code() != codes.Unimplemented {
-			return err
-		}
-	}
-	return nil
-}
-
-// GatherData calls the GatherData custom logic
-func (m *frontendManager) GatherData(ctx context.Context, ticket *pb.Ticket) (*pb.Ticket, error) {
-	if m.dataClient == nil {
-		return ticket, nil
-	}
-	gatherNotImplemented := false
-	gatherDataResp, err := m.dataClient.GatherData(ctx, ticket)
-	if err != nil {
-		s, ok := status.FromError(err)
-		if !ok {
-			return nil, err
-		}
-		switch s.Code() {
-		case codes.Unimplemented:
-			gatherNotImplemented = true
-		case codes.FailedPrecondition:
-			return nil, err
-		default:
-			log.Err(err).Msg("failed to call custom gather data")
-			return nil, err
-		}
-	}
-
-	if gatherNotImplemented {
-		return ticket, nil
-	}
-
-	return &pb.Ticket{
-		Id:           ticket.Id,
-		SearchFields: gatherDataResp.SearchFields,
-		Extensions:   gatherDataResp.Extensions,
-		CreateTime:   ticket.CreateTime,
-	}, nil
-}
 
 // MatchmakerManager provides the interface for calling custom matchmaker logic
 type MatchmakerManager interface {
-	MakeMatches(ctx context.Context, req *pb.MakeMatchesRequest, f func(ctx context.Context, match *pb.Match)) error
+	MakeMatches(ctx context.Context, req *api.MakeMatchesRequest, f func(ctx context.Context, match *api.Match)) error
 }
 
 type matchmakerManager struct {
-	matchMakerClient pb.MatchMakerServiceClient
+	matchMakerClient api.MatchMakerServiceClient
 }
 
 // NewMatchmakerManager returns a new MatchmakerManager
-func NewMatchmakerManager(matchMakerClient pb.MatchMakerServiceClient) MatchmakerManager {
+func NewMatchmakerManager(matchMakerClient api.MatchMakerServiceClient) MatchmakerManager {
 	return &matchmakerManager{
 		matchMakerClient: matchMakerClient,
 	}
 }
 
 // MakeMatches calls the MakeMatches custom logic
-func (m *matchmakerManager) MakeMatches(ctx context.Context, req *pb.MakeMatchesRequest, f func(ctx context.Context, match *pb.Match)) error {
+func (m *matchmakerManager) MakeMatches(ctx context.Context, req *api.MakeMatchesRequest, f func(ctx context.Context, match *api.Match)) error {
 	cli, err := m.matchMakerClient.MakeMatches(ctx, req)
 	if err != nil {
 		return err
@@ -121,21 +45,25 @@ func (m *matchmakerManager) MakeMatches(ctx context.Context, req *pb.MakeMatches
 
 // AssignmentManager provides the interface for calling custom assignment logic
 type AssignmentManager interface {
-	MakeAssignment(ctx context.Context, match *pb.Match) (*pb.Assignment, error)
+	MakeAssignment(ctx context.Context, match *api.Match) (*api.GameServer, error)
 }
 
 type assignmentManager struct {
-	assignmentClient pb.AssignmentServiceClient
+	assignmentClient api.AssignmentServiceClient
 }
 
 // NewAssignmentManager returns a new AssignmentManager
-func NewAssignmentManager(assignmentClient pb.AssignmentServiceClient) AssignmentManager {
+func NewAssignmentManager(assignmentClient api.AssignmentServiceClient) AssignmentManager {
 	return &assignmentManager{
 		assignmentClient: assignmentClient,
 	}
 }
 
 // MakeAssignment calls the MakeAssignment custom logic
-func (m *assignmentManager) MakeAssignment(ctx context.Context, match *pb.Match) (*pb.Assignment, error) {
-	return m.assignmentClient.MakeAssignment(ctx, match)
+func (m *assignmentManager) MakeAssignment(ctx context.Context, match *api.Match) (*api.GameServer, error) {
+	resp, err := m.assignmentClient.MakeAssignment(ctx, &api.MakeAssignmentRequest{Match: match})
+	if err != nil {
+		return nil, err
+	}
+	return resp.GameServer, nil
 }

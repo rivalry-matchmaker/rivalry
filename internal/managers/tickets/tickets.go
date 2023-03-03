@@ -5,53 +5,60 @@ package tickets
 import (
 	"context"
 	"sync"
+	"time"
 
+	mapset "github.com/deckarep/golang-set/v2"
+	"github.com/golang/protobuf/proto"
+	"github.com/pkg/errors"
 	"github.com/rivalry-matchmaker/rivalry/internal/backoff"
 	"github.com/rivalry-matchmaker/rivalry/internal/db/kv"
 	"github.com/rivalry-matchmaker/rivalry/internal/db/pubsub"
 	"github.com/rivalry-matchmaker/rivalry/internal/db/stream"
-	"github.com/rivalry-matchmaker/rivalry/internal/managers/filter"
-	"github.com/rivalry-matchmaker/rivalry/pkg/pb"
-	mapset "github.com/deckarep/golang-set"
-	"github.com/golang/protobuf/proto"
-	"github.com/pkg/errors"
-	"github.com/rs/xid"
+	api "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
+	db "github.com/rivalry-matchmaker/rivalry/pkg/pb/db/v1"
 	"github.com/rs/zerolog/log"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
-	collectionTickets           = "tickets"
-	collectionTicketAssignments = "ticket_assignments"
-	topicMatchRequestPrefix     = "match_request_"
-	subjectTicketUpdatesPrefix  = "ticket_updates_"
+	collectionTickets                  = "tickets"
+	collectionTicketAssignments        = "ticket_assignments"
+	topicMatchRequestPrefix            = "match_request_"
+	topicAccumulatedMatchRequestPrefix = "accumulated_match_request_"
+	subjectTicketUpdatesPrefix         = "ticket_updates_"
 )
 
 // ErrDuplicateTicketID is an error returned when the ticket id given when creating a new ticket already exists
 var ErrDuplicateTicketID = errors.New("duplicate ticket id")
 
 // GetMatchRequestTopic returns a topic name based on the Match Profile a Ticket aligns with
-func GetMatchRequestTopic(profileName string) string {
-	return topicMatchRequestPrefix + profileName
+func GetMatchRequestTopic(queueName string) string {
+	return topicMatchRequestPrefix + queueName
 }
 
-// GetTicketSubject returns a subject to be used with ticket pub-sub
-func GetTicketSubject(ticketID string) string {
+// GetAccumulatedMatchRequestTopic returns a topic name based on the Match Profile a Ticket aligns with
+func GetAccumulatedMatchRequestTopic(queueName string) string {
+	return topicAccumulatedMatchRequestPrefix + queueName
+}
+
+// GetMatchRequestSubject returns a subject to be used with ticket pub-sub
+func GetMatchRequestSubject(ticketID string) string {
 	return subjectTicketUpdatesPrefix + ticketID
 }
 
 // Manager interface specifies our interactions with tickets
 type Manager interface {
-	CreateTicket(ctx context.Context, ticket *pb.Ticket, filterManager filter.Manager) (*pb.Ticket, error)
-	DeleteTicket(ctx context.Context, ticketID string) error
-	GetTicket(ctx context.Context, ticketID string) (*pb.Ticket, error)
-	GetTickets(ctx context.Context, ticketIDs []string) ([]*pb.Ticket, error)
-	WatchTicket(ctx context.Context, ticketID string, f func(ctx context.Context, t *pb.Ticket)) error
-	StreamTickets(ctx context.Context, profile string, f func(ctx context.Context, st *pb.StreamTicket, t *pb.Ticket)) error
-	AssignTicketsToMatch(ctx context.Context, match *pb.Match) (bool, error)
-	ReleaseTicketsFromMatch(ctx context.Context, match *pb.Match) error
-	AddAssignmentToTickets(ctx context.Context, assignment *pb.Assignment, tickets []*pb.Ticket) error
-	RequeueTickets(ctx context.Context, tickets []*pb.Ticket, filterManager filter.Manager)
+	CreateMatchRequest(ctx context.Context, ticket *api.MatchRequest) error
+	DeleteMatchRequest(ctx context.Context, ticketID string) error
+	GetMatchRequest(ctx context.Context, ticketID string) (*db.MatchRequest, error)
+	GetMatchRequests(ctx context.Context, ticketIDs []string) ([]*db.MatchRequest, error)
+	WatchMatchRequest(ctx context.Context, ticketID string, f func(ctx context.Context, t *db.MatchRequest)) error
+	StreamMatchRequests(ctx context.Context, queue string, f func(ctx context.Context, st *api.StreamTicket)) error
+	PublishAccumulatedMatchRequests(ctx context.Context, queue string, sts []*api.StreamTicket) error
+	StreamAccumulatedMatchRequests(ctx context.Context, queue string, f func(ctx context.Context, sts []*api.StreamTicket)) error
+	AssignMatchRequestsToMatch(ctx context.Context, match *api.Match) (bool, error)
+	ReleaseMatchRequestsFromMatch(ctx context.Context, match *api.Match) error
+	AddAssignmentToMatchRequests(ctx context.Context, assignment *api.GameServer, match *api.Match) error
+	RequeueMatchRequests(ctx context.Context, tickets []*api.StreamTicket)
 	Close()
 }
 
@@ -70,7 +77,7 @@ func NewManager(kvStore kv.Store, streamClient stream.Client, pubsubClient pubsu
 	}
 }
 
-func (m *manager) sendMessage(ctx context.Context, st *pb.StreamTicket) error {
+func (m *manager) publishStreamTicket(ctx context.Context, st *api.StreamTicket) error {
 	return backoff.Retry(
 		ctx,
 		func() error {
@@ -78,7 +85,7 @@ func (m *manager) sendMessage(ctx context.Context, st *pb.StreamTicket) error {
 			if err != nil {
 				return errors.Wrap(err, "failed to marshal stream ticket")
 			}
-			err = m.streamClient.SendMessage(GetMatchRequestTopic(st.Profile), streamTicketBytes)
+			err = m.streamClient.SendMessage(GetMatchRequestTopic(st.MatchmakingQueue), streamTicketBytes)
 			if err != nil {
 				return errors.Wrap(err, "failed to add ticket to stream")
 			}
@@ -88,74 +95,128 @@ func (m *manager) sendMessage(ctx context.Context, st *pb.StreamTicket) error {
 	)
 }
 
-func streamTicketFromTicket(ticket *pb.Ticket, filterManager filter.Manager) (*pb.StreamTicket, error) {
-	// find the match profile this ticket belongs to
-	profile, pool, err := filterManager.ProfileMembershipTest(ticket)
-	if err != nil {
-		return nil, err
+func StreamTicketFromDBRequest(request *db.MatchRequest) *api.StreamTicket {
+	return &api.StreamTicket{
+		MatchmakingQueue: request.MatchmakingQueue,
+		MatchRequestId:   request.Id,
+		NumberOfPlayers:  int32(len(request.Members)),
 	}
-	return &pb.StreamTicket{
-		Profile:  profile,
-		Pool:     pool,
-		TicketId: ticket.Id,
-	}, nil
 }
 
-// CreateTicket creates a new ticket
-func (m *manager) CreateTicket(ctx context.Context, ticket *pb.Ticket, filterManager filter.Manager) (*pb.Ticket, error) {
-	// generate a ticket id if one doesn't exist
-	if len(ticket.Id) == 0 {
-		ticket.Id = xid.New().String()
-	}
-	ticket.CreateTime = timestamppb.Now()
+func SubmissionFromDBRequest(request *db.MatchRequest) *api.Submission {
+	var (
+		rtts = make([]*api.RTT, len(request.Rtts))
+		md   = new(api.MatchRequestData)
+	)
 
-	// filter ticket
-	streamTicket, err := streamTicketFromTicket(ticket, filterManager)
-	if err != nil {
-		return nil, err
-	}
-
-	// marshal ticket into bytes
-	ticketBytes, err := proto.Marshal(ticket)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to marshal ticket")
+	for j, rtt := range request.Rtts {
+		rtts[j] = &api.RTT{
+			Host:         rtt.Host,
+			Milliseconds: rtt.Milliseconds,
+		}
 	}
 
-	// persist the ticket
-	set, err := m.kvStore.SetNX(ctx, collectionTickets, ticket.Id, ticketBytes, 0)
+	if request.MatchRequestData != nil {
+		md.Strings = request.MatchRequestData.Strings
+		md.Doubles = request.MatchRequestData.Doubles
+		md.Tags = request.MatchRequestData.Tags
+		md.ExtraData = request.MatchRequestData.ExtraData
+	}
+
+	return &api.Submission{
+		Id:               request.Id,
+		Members:          request.Members,
+		MatchRequestData: md,
+		MatchmakingQueue: request.MatchmakingQueue,
+		Rtts:             rtts,
+		CreateTime:       request.CreateTime,
+	}
+}
+
+// CreateMatchRequest creates a new ticket
+func (m *manager) CreateMatchRequest(ctx context.Context, req *api.MatchRequest) error {
+	// generate a req id if one doesn't exist
+	if len(req.Id) == 0 {
+		return errors.New("Missing ID")
+	}
+
+	members := mapset.NewSet[string]()
+	if req.PartyData != nil {
+		for _, pm := range req.PartyData.PartyMembers {
+			members.Add(pm)
+		}
+	}
+	members.Add(req.PlayerId)
+
+	dbRTTs := make([]*db.RTT, len(req.Rtts))
+	for i, v := range req.Rtts {
+		dbRTTs[i] = &db.RTT{
+			Host:         v.Host,
+			Milliseconds: v.Milliseconds,
+		}
+	}
+
+	if req.MatchRequestData == nil {
+		req.MatchRequestData = &api.MatchRequestData{}
+	}
+
+	kvReq := &db.MatchRequest{
+		Id:      req.Id,
+		Members: members.ToSlice(),
+		MatchRequestData: &db.MatchRequestData{
+			Doubles:   req.MatchRequestData.Doubles,
+			Strings:   req.MatchRequestData.Strings,
+			Tags:      req.MatchRequestData.Tags,
+			ExtraData: req.MatchRequestData.ExtraData,
+		},
+		MatchmakingQueue: req.MatchmakingQueue,
+		Rtts:             dbRTTs,
+		CreateTime:       time.Now().UTC().Unix(),
+	}
+
+	streamTicket := StreamTicketFromDBRequest(kvReq)
+
+	// marshal req into bytes
+	reqBytes, err := proto.Marshal(kvReq)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to persist ticket")
+		return errors.Wrap(err, "failed to marshal req")
+	}
+
+	// persist the req
+	set, err := m.kvStore.SetNX(ctx, collectionTickets, req.Id, reqBytes, 0)
+	if err != nil {
+		return errors.Wrap(err, "failed to persist req")
 	}
 	if !set {
-		return nil, ErrDuplicateTicketID
+		return ErrDuplicateTicketID
 	}
-	// if anything from here onwards fails we want to remove the ticket from the database
+	// if anything from here onwards fails we want to remove the req from the database
 	defer func() {
 		if err != nil {
-			_ = m.kvStore.Del(ctx, collectionTickets, ticket.Id)
+			_ = m.kvStore.Del(ctx, collectionTickets, req.Id)
 		}
 	}()
 
-	// stream ticket details
-	err = m.sendMessage(ctx, streamTicket)
+	// stream req details
+	err = m.publishStreamTicket(ctx, streamTicket)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return ticket, nil
+	return nil
 }
 
-// DeleteTicket deletes a ticket
-func (m *manager) DeleteTicket(ctx context.Context, ticketID string) error {
+// DeleteMatchRequest deletes a ticket
+func (m *manager) DeleteMatchRequest(ctx context.Context, ticketID string) error {
 	return m.kvStore.Del(ctx, collectionTickets, ticketID)
 }
 
-// GetTicket returns a ticket
-func (m *manager) GetTicket(ctx context.Context, ticketID string) (*pb.Ticket, error) {
+// GetMatchRequest returns a Match Request
+func (m *manager) GetMatchRequest(ctx context.Context, ticketID string) (*db.MatchRequest, error) {
 	ticketBytes, err := m.kvStore.Get(ctx, collectionTickets, ticketID)
 	if err != nil {
 		return nil, err
 	}
-	t := new(pb.Ticket)
+	t := new(db.MatchRequest)
 	err = proto.Unmarshal(ticketBytes, t)
 	if err != nil {
 		return nil, err
@@ -163,15 +224,15 @@ func (m *manager) GetTicket(ctx context.Context, ticketID string) (*pb.Ticket, e
 	return t, nil
 }
 
-// GetTickets returns a list of tickets
-func (m *manager) GetTickets(ctx context.Context, ticketIDs []string) ([]*pb.Ticket, error) {
+// GetMatchRequests returns a list of Match Requests
+func (m *manager) GetMatchRequests(ctx context.Context, ticketIDs []string) ([]*db.MatchRequest, error) {
 	data, err := m.kvStore.MGet(ctx, collectionTickets, ticketIDs)
 	if err != nil {
 		return nil, err
 	}
-	tickets := make([]*pb.Ticket, 0, len(data))
+	tickets := make([]*db.MatchRequest, 0, len(data))
 	for _, v := range data {
-		t := new(pb.Ticket)
+		t := new(db.MatchRequest)
 		err = proto.Unmarshal(v, t)
 		if err != nil {
 			return nil, err
@@ -181,32 +242,59 @@ func (m *manager) GetTickets(ctx context.Context, ticketIDs []string) ([]*pb.Tic
 	return tickets, nil
 }
 
-// StreamTickets listens to a stream of tickets that have been submitted and match a given profile
-func (m *manager) StreamTickets(ctx context.Context, profile string, f func(ctx context.Context, st *pb.StreamTicket, t *pb.Ticket)) error {
+// StreamMatchRequests listens to a stream of tickets that have been submitted and match a given queue
+func (m *manager) StreamMatchRequests(ctx context.Context, queue string, f func(ctx context.Context, st *api.StreamTicket)) error {
 	return m.streamClient.Subscribe(
-		GetMatchRequestTopic(profile),
+		GetMatchRequestTopic(queue),
 		func(b []byte) {
-			st := new(pb.StreamTicket)
+			st := new(api.StreamTicket)
 			err := proto.Unmarshal(b, st)
 			if err != nil {
 				log.Err(err).Msg("unable to unmarshal ticket")
 				return
 			}
-			t, err := m.GetTicket(ctx, st.TicketId)
-			if err != nil {
-				log.Err(err).Str("ticket_id", st.TicketId).Msg("unable to read ticket")
-				return
-			}
-			f(ctx, st, t)
+			f(ctx, st)
 		})
 }
 
-// WatchTicket listens to pubsub events for a given ticket
-func (m *manager) WatchTicket(ctx context.Context, ticketID string, f func(ctx context.Context, t *pb.Ticket)) error {
-	err := m.pubsubClient.Subscribe(
-		ctx, GetTicketSubject(ticketID),
+func (m *manager) PublishAccumulatedMatchRequests(ctx context.Context, queue string, sts []*api.StreamTicket) error {
+	return backoff.Retry(
+		ctx,
+		func() error {
+			streamTicketBytes, err := proto.Marshal(&api.AccumulatedStreamTicket{StreamTickets: sts})
+			if err != nil {
+				return errors.Wrap(err, "failed to marshal stream ticket")
+			}
+			err = m.streamClient.SendMessage(GetAccumulatedMatchRequestTopic(queue), streamTicketBytes)
+			if err != nil {
+				return errors.Wrap(err, "failed to add ticket to stream")
+			}
+			return nil
+		},
+		backoff.Exponential(),
+	)
+}
+
+func (m *manager) StreamAccumulatedMatchRequests(ctx context.Context, queue string, f func(ctx context.Context, sts []*api.StreamTicket)) error {
+	return m.streamClient.Subscribe(
+		GetAccumulatedMatchRequestTopic(queue),
 		func(b []byte) {
-			t, err := m.GetTicket(ctx, ticketID)
+			st := new(api.AccumulatedStreamTicket)
+			err := proto.Unmarshal(b, st)
+			if err != nil {
+				log.Err(err).Msg("unable to unmarshal ticket")
+				return
+			}
+			f(ctx, st.StreamTickets)
+		})
+}
+
+// WatchMatchRequest listens to pubsub events for a given ticket
+func (m *manager) WatchMatchRequest(ctx context.Context, ticketID string, f func(ctx context.Context, t *db.MatchRequest)) error {
+	err := m.pubsubClient.Subscribe(
+		ctx, GetMatchRequestSubject(ticketID),
+		func(b []byte) {
+			t, err := m.GetMatchRequest(ctx, ticketID)
 			if err != nil {
 				return
 			}
@@ -215,85 +303,87 @@ func (m *manager) WatchTicket(ctx context.Context, ticketID string, f func(ctx c
 	return err
 }
 
-// AssignTicketsToMatch tries to link all the ticket IDs in a match to the match's ID
-func (m *manager) AssignTicketsToMatch(ctx context.Context, match *pb.Match) (bool, error) {
-	if len(match.Tickets) == 0 {
+// AssignMatchRequestsToMatch tries to link all the ticket IDs in a match to the match's ID
+func (m *manager) AssignMatchRequestsToMatch(ctx context.Context, match *api.Match) (bool, error) {
+	if len(match.MatchRequestIds) == 0 {
 		return true, nil
 	}
 	allocations := make(map[string]interface{})
-	for _, t := range match.Tickets {
-		allocations[t.Id] = match.MatchId
+	for _, t := range match.MatchRequestIds {
+		allocations[t] = match.MatchId
 	}
 	return m.kvStore.MSetNX(ctx, collectionTicketAssignments, allocations)
 }
 
-// ReleaseTicketsFromMatch removes the link between all the ticket IDs in a match to the match's ID
-func (m *manager) ReleaseTicketsFromMatch(ctx context.Context, match *pb.Match) error {
-	if len(match.Tickets) == 0 {
+// ReleaseMatchRequestsFromMatch removes the link between all the ticket IDs in a match to the match's ID
+func (m *manager) ReleaseMatchRequestsFromMatch(ctx context.Context, match *api.Match) error {
+	if len(match.MatchRequestIds) == 0 {
 		return nil
 	}
-	var ts = make([]string, len(match.Tickets))
-	for i, v := range match.Tickets {
-		ts[i] = v.Id
+	var ts = make([]string, len(match.MatchRequestIds))
+	for i, v := range match.MatchRequestIds {
+		ts[i] = v
 	}
 	return m.kvStore.Del(ctx, collectionTicketAssignments, ts...)
 }
 
-func idsFromTickets(tickets []*pb.Ticket) []string {
-	ids := make([]string, len(tickets))
-	for i, v := range tickets {
-		ids[i] = v.Id
-	}
-	return ids
-}
-
-// AddAssignmentToTickets updates a list of tickets adding an assignment to each
-func (m *manager) AddAssignmentToTickets(ctx context.Context, assignment *pb.Assignment, tickets []*pb.Ticket) error {
-	if len(tickets) == 0 {
+// AddAssignmentToMatchRequests updates a list of tickets adding an assignment to each
+func (m *manager) AddAssignmentToMatchRequests(ctx context.Context, assignment *api.GameServer, match *api.Match) error {
+	if len(match.MatchRequestIds) == 0 {
 		return nil
 	}
-	data := make(map[string]interface{})
-	for _, t := range tickets {
-		t.Assignment = assignment
-		tBytes, err := proto.Marshal(t)
-		if err != nil {
-			log.Err(err).Str("ticket_id", t.Id).Msg("failed to marshal Ticket")
-			continue
-		}
-		data[t.Id] = tBytes
-	}
-	err := m.kvStore.MSet(ctx, collectionTickets, data)
+	matchRequests, err := m.GetMatchRequests(ctx, match.MatchRequestIds)
 	if err != nil {
 		return err
 	}
 
-	ticketIDs := idsFromTickets(tickets)
-	log.Debug().Strs("tickets", ticketIDs).Msg("successfully added assignment to tickets")
+	gs := &db.GameServer{
+		GameServerIp: assignment.GameServerIp,
+	}
+	for _, p := range assignment.GameServerPorts {
+		gs.GameServerPorts = append(gs.GameServerPorts, &db.GameServerPort{Name: p.Name, Port: p.Port})
+	}
+
+	data := make(map[string]interface{})
+	for _, mr := range matchRequests {
+		mr.GameServer = gs
+		reqBytes, err := proto.Marshal(mr)
+		if err != nil {
+			return errors.Wrap(err, "failed to marshal match request")
+		}
+		data[mr.Id] = reqBytes
+	}
+
+	if err := m.kvStore.MSet(ctx, collectionTickets, data); err != nil {
+		return err
+	}
+
+	log.Debug().Strs("tickets", match.MatchRequestIds).Msg("successfully added assignment to tickets")
 
 	var wg sync.WaitGroup
-	for _, t := range tickets {
+	for _, t := range match.MatchRequestIds {
 		wg.Add(1)
-		go func(ticketID string) {
+		go func(matchRequestID string) {
 			backoff.Retry(ctx, func() error {
-				return m.pubsubClient.Publish(ctx, GetTicketSubject(ticketID), []byte("assigned"))
+				return m.pubsubClient.Publish(ctx, GetMatchRequestSubject(matchRequestID), []byte("assigned"))
 			}, backoff.Exponential())
 			if err != nil {
-				log.Err(err).Str("ticket_id", ticketID).Msg("failed to publish assignment")
+				log.Err(err).Str("match_request_id", matchRequestID).Msg("failed to publish assignment")
 			}
 			wg.Done()
-		}(t.Id)
+		}(t)
 	}
 	wg.Wait()
-	log.Debug().Strs("tickets", ticketIDs).Msg("successfully published ticket assignments")
+	log.Debug().Strs("tickets", match.MatchRequestIds).Msg("successfully published ticket assignments")
 	return nil
 }
 
-// RequeueTickets resubmits tickets to the stream of submitted tickets
-func (m *manager) RequeueTickets(ctx context.Context, tickets []*pb.Ticket, filterManager filter.Manager) {
+// RequeueMatchRequests resubmits match requests to the stream of submitted tickets
+func (m *manager) RequeueMatchRequests(ctx context.Context, tickets []*api.StreamTicket) {
 	// get ticket ids from the match
 	ids := make([]string, len(tickets))
 	for i, t := range tickets {
-		ids[i] = t.Id
+		ids[i] = t.MatchRequestId
 	}
 	// search for allocations
 	var allocations map[string][]byte
@@ -308,7 +398,7 @@ func (m *manager) RequeueTickets(ctx context.Context, tickets []*pb.Ticket, filt
 		return
 	}
 	// we should requeue all the keys that don't have an allocation
-	requeueIDs := mapset.NewSet()
+	requeueIDs := mapset.NewSet[string]()
 	for _, k := range ids {
 		v := allocations[k]
 		if v == nil {
@@ -321,13 +411,8 @@ func (m *manager) RequeueTickets(ctx context.Context, tickets []*pb.Ticket, filt
 		return
 	}
 	for _, t := range tickets {
-		if requeueIDs.Contains(t.Id) {
-			streamTicket, err := streamTicketFromTicket(t, filterManager)
-			if err != nil {
-				log.Err(err).Interface("ticket", t).Msg("failed to filter ticket")
-				continue
-			}
-			err = m.sendMessage(ctx, streamTicket)
+		if requeueIDs.Contains(t.MatchRequestId) {
+			err = m.publishStreamTicket(ctx, t)
 			if err != nil {
 				log.Err(err).Msg("stream ticket failed")
 				continue

@@ -12,5 +12,8 @@ import (
 	_ "github.com/golang/protobuf/protoc-gen-go"
 	_ "github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway"
 	_ "github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2"
+	_ "github.com/magefile/mage/mage"
+	_ "github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc"
 	_ "golang.org/x/lint/golint"
+	_ "google.golang.org/grpc/cmd/protoc-gen-go-grpc"
 )

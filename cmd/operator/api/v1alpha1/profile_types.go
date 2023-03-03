@@ -27,21 +27,24 @@ import (
 type ProfileSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	NatsAddress        string             `json:"nats_address"`
-	RedisAddress       string             `json:"redis_address"`
-	FrontendService    FrontendService    `json:"frontend_service"`
-	AccumulatorService AccumulatorService `json:"accumulator_service"`
-	DispenserService   DispenserService   `json:"dispenser_service"`
-	MatchProfiles      []*MatchProfile    `json:"match_profiles"`
+	NatsAddress        string              `json:"nats_address"`
+	RedisAddress       string              `json:"redis_address"`
+	FrontendService    FrontendService     `json:"frontend_service"`
+	AccumulatorService AccumulatorService  `json:"accumulator_service"`
+	MatcherService     MatcherService      `json:"matcher_service"`
+	DispenserService   DispenserService    `json:"dispenser_service"`
+	MatchmakingQueues  []*MatchmakingQueue `json:"matchmaking_queues"`
 }
 
 type FrontendService struct {
-	Image            string `json:"image"`
-	ValidationTarget string `json:"validation_target,omitempty"`
-	DataTarget       string `json:"data_target,omitempty"`
+	Image string `json:"image"`
 }
 
 type AccumulatorService struct {
+	Image string `json:"image"`
+}
+
+type MatcherService struct {
 	Image string `json:"image"`
 }
 
@@ -50,32 +53,11 @@ type DispenserService struct {
 	AssignmentTarget string `json:"assignment_target"`
 }
 
-type MatchProfile struct {
+type MatchmakingQueue struct {
 	Name             string `json:"name"`
 	MatchmakerTarget string `json:"matchmaker_target"`
-	Pools            []Pool `json:"pools"`
-}
-
-type Pool struct {
-	Name                string               `json:"name"`
-	DoubleRangeFilters  []DoubleRangeFilter  `json:"double_range_filters,omitempty"`
-	StringEqualsFilters []StringEqualsFilter `json:"string_equals_filters,omitempty"`
-	TagPresentFilters   []TagPresentFilter   `json:"tag_present_filters,omitempty"`
-}
-
-type DoubleRangeFilter struct {
-	Arg string  `json:"arg"`
-	Min float64 `json:"min,string"`
-	Max float64 `json:"max,string"`
-}
-
-type StringEqualsFilter struct {
-	Arg   string `json:"arg"`
-	Value string `json:"value"`
-}
-
-type TagPresentFilter struct {
-	Tag string `json:"tag"`
+	MaxTickets       int64  `json:"max_tickets,omitempty"`
+	MaxDelay         int64  `json:"max_delay,omitempty"`
 }
 
 // ProfileStatus defines the observed state of Profile

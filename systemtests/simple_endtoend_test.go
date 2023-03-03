@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rivalry-matchmaker/rivalry/pkg/pb"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
+	api "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -24,6 +24,7 @@ type SimpleEndToEndTestSuite struct {
 	natsServer        *server.Server
 	frontend          *cobra.Command
 	accumulator       *cobra.Command
+	matcher           *cobra.Command
 	dispenser         *cobra.Command
 	matchmaker        *cobra.Command
 	assignmentService *cobra.Command
@@ -38,8 +39,9 @@ func (s *SimpleEndToEndTestSuite) SetupSuite() {
 	)
 	s.frontend = initFrontend(&s.Suite, redisAddr, natsAddr)
 	s.accumulator = initAccumulator(&s.Suite, redisAddr, natsAddr)
+	s.matcher = initMatcher(&s.Suite, redisAddr, natsAddr)
 	s.dispenser = initDispenser(&s.Suite, redisAddr, natsAddr)
-	s.matchmaker = initMatchmaker(false)
+	s.matchmaker = initMatchmaker()
 	s.assignmentService = initAssignmentService()
 	time.Sleep(time.Second / 2)
 }
@@ -49,6 +51,7 @@ func (s *SimpleEndToEndTestSuite) TearDownSuite() {
 	s.redis.Term()
 	stopFrontend()
 	stopAccumulator()
+	stopMatcher()
 	stopDispenser()
 	stopMatchmaker()
 	stopAssignmentService()
@@ -57,7 +60,7 @@ func (s *SimpleEndToEndTestSuite) TearDownSuite() {
 func (s *SimpleEndToEndTestSuite) TestTwoPlayerMatch() {
 	frontendConn, err := grpc.Dial(frontendTarget, grpc.WithInsecure())
 	require.NoError(s.T(), err)
-	frontendServiceClient := pb.NewFrontendServiceClient(frontendConn)
+	frontendServiceClient := api.NewRivalryServiceClient(frontendConn)
 	ctx := context.Background()
 	var wg sync.WaitGroup
 
@@ -68,13 +71,13 @@ func (s *SimpleEndToEndTestSuite) TestTwoPlayerMatch() {
 	go p2.playTheGame(ctx)
 	wg.Wait()
 
-	assert.Equal(s.T(), p1.assignment.Connection, p2.assignment.Connection)
+	assert.Equal(s.T(), p1.assignment.GameServerIp, p2.assignment.GameServerIp)
 }
 
 func (s *SimpleEndToEndTestSuite) TestTwoPlayerMatchWithPauseBetweenSubmissions() {
 	frontendConn, err := grpc.Dial(frontendTarget, grpc.WithInsecure())
 	require.NoError(s.T(), err)
-	frontendServiceClient := pb.NewFrontendServiceClient(frontendConn)
+	frontendServiceClient := api.NewRivalryServiceClient(frontendConn)
 	ctx := context.Background()
 	var wg sync.WaitGroup
 	p1 := newPlayer(s.Suite, &wg, frontendServiceClient, "Player 1")
@@ -91,7 +94,7 @@ func (s *SimpleEndToEndTestSuite) TestTwoPlayerMatchWithPauseBetweenSubmissions(
 	go p2.playTheGame(ctx)
 	wg.Wait()
 
-	assert.Equal(s.T(), p1.assignment.Connection, p2.assignment.Connection)
+	assert.Equal(s.T(), p1.assignment.GameServerIp, p2.assignment.GameServerIp)
 }
 
 func TestSimpleEndToEndTestSuite(t *testing.T) {

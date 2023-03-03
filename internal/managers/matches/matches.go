@@ -5,12 +5,12 @@ package matches
 import (
 	"context"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/rivalry-matchmaker/rivalry/internal/backoff"
 	"github.com/rivalry-matchmaker/rivalry/internal/db/kv"
 	"github.com/rivalry-matchmaker/rivalry/internal/db/stream"
 	"github.com/rivalry-matchmaker/rivalry/internal/managers/tickets"
-	"github.com/rivalry-matchmaker/rivalry/pkg/pb"
-	"github.com/golang/protobuf/proto"
+	api "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
 	"github.com/rs/xid"
 	"github.com/rs/zerolog/log"
 )
@@ -27,8 +27,8 @@ func GetUnassignedMatchesTopic() string {
 
 // Manager interface specifies the methods needed to manage match state
 type Manager interface {
-	CreateMatch(ctx context.Context, match *pb.Match) (bool, error)
-	StreamMatches(ctx context.Context, f func(ctx context.Context, match *pb.Match)) error
+	CreateMatch(ctx context.Context, match *api.Match) (bool, error)
+	StreamMatches(ctx context.Context, f func(ctx context.Context, match *api.Match)) error
 	Requeue(matchID string) error
 	Close()
 }
@@ -49,12 +49,12 @@ func NewManager(ticketsManager tickets.Manager, kvStore kv.Store, streamClient s
 }
 
 // GetMatch returns a Match
-func (m *manager) GetMatch(ctx context.Context, matchID string) (*pb.Match, error) {
+func (m *manager) GetMatch(ctx context.Context, matchID string) (*api.Match, error) {
 	data, err := m.kvStore.Get(ctx, collectionMatch, matchID)
 	if err != nil {
 		return nil, err
 	}
-	match := new(pb.Match)
+	match := new(api.Match)
 	err = proto.Unmarshal(data, match)
 	if err != nil {
 		return nil, err
@@ -63,13 +63,13 @@ func (m *manager) GetMatch(ctx context.Context, matchID string) (*pb.Match, erro
 }
 
 // CreateMatch creates a Match
-func (m *manager) CreateMatch(ctx context.Context, match *pb.Match) (bool, error) {
+func (m *manager) CreateMatch(ctx context.Context, match *api.Match) (bool, error) {
 	if len(match.MatchId) == 0 {
 		match.MatchId = xid.New().String()
 	}
 
 	// try to take ownership of all the tickets in this match
-	successful, err := m.ticketsManager.AssignTicketsToMatch(ctx, match)
+	successful, err := m.ticketsManager.AssignMatchRequestsToMatch(ctx, match)
 	if err != nil {
 		return false, err
 	}
@@ -79,7 +79,7 @@ func (m *manager) CreateMatch(ctx context.Context, match *pb.Match) (bool, error
 	// if anything from here onwards fails we want to release tickets from this match
 	defer func() {
 		if err != nil {
-			releaseErr := m.ticketsManager.ReleaseTicketsFromMatch(ctx, match)
+			releaseErr := m.ticketsManager.ReleaseMatchRequestsFromMatch(ctx, match)
 			if releaseErr != nil {
 				log.Err(releaseErr).Msg("failed to release tickets from match")
 			}
@@ -105,19 +105,18 @@ func (m *manager) CreateMatch(ctx context.Context, match *pb.Match) (bool, error
 		}
 	}()
 
-	if match.AllocateGameserver {
-		err = m.streamClient.SendMessage(GetUnassignedMatchesTopic(), []byte(match.MatchId))
-		if err != nil {
-			return false, err
-		}
+	err = m.streamClient.SendMessage(GetUnassignedMatchesTopic(), []byte(match.MatchId))
+	if err != nil {
+		return false, err
 	}
+
 	return true, nil
 }
 
 // StreamMatches listens on a stream for unassigned matches
-func (m *manager) StreamMatches(ctx context.Context, f func(ctx context.Context, match *pb.Match)) error {
+func (m *manager) StreamMatches(ctx context.Context, f func(ctx context.Context, match *api.Match)) error {
 	return m.streamClient.Subscribe(GetUnassignedMatchesTopic(), func(data []byte) {
-		var match *pb.Match
+		var match *api.Match
 		err := backoff.Retry(ctx, func() error {
 			var err error
 			match, err = m.GetMatch(ctx, string(data))
