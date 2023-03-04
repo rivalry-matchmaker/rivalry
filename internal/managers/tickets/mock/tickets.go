@@ -11,6 +11,7 @@ import (
 	gomock "github.com/golang/mock/gomock"
 	v1 "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
 	v10 "github.com/rivalry-matchmaker/rivalry/pkg/pb/db/v1"
+	v11 "github.com/rivalry-matchmaker/rivalry/pkg/pb/stream/v1"
 )
 
 // MockManager is a mock of Manager interface.
@@ -136,17 +137,17 @@ func (mr *MockManagerMockRecorder) GetMatchRequests(arg0, arg1 interface{}) *gom
 }
 
 // PublishAccumulatedMatchRequests mocks base method.
-func (m *MockManager) PublishAccumulatedMatchRequests(arg0 context.Context, arg1 []*v1.StreamTicket) error {
+func (m *MockManager) PublishAccumulatedMatchRequests(arg0 context.Context, arg1 string, arg2 []*v11.StreamTicket) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PublishAccumulatedMatchRequests", arg0, arg1)
+	ret := m.ctrl.Call(m, "PublishAccumulatedMatchRequests", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // PublishAccumulatedMatchRequests indicates an expected call of PublishAccumulatedMatchRequests.
-func (mr *MockManagerMockRecorder) PublishAccumulatedMatchRequests(arg0, arg1 interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) PublishAccumulatedMatchRequests(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishAccumulatedMatchRequests", reflect.TypeOf((*MockManager)(nil).PublishAccumulatedMatchRequests), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishAccumulatedMatchRequests", reflect.TypeOf((*MockManager)(nil).PublishAccumulatedMatchRequests), arg0, arg1, arg2)
 }
 
 // ReleaseMatchRequestsFromMatch mocks base method.
@@ -164,7 +165,7 @@ func (mr *MockManagerMockRecorder) ReleaseMatchRequestsFromMatch(arg0, arg1 inte
 }
 
 // RequeueMatchRequests mocks base method.
-func (m *MockManager) RequeueMatchRequests(arg0 context.Context, arg1 []*v1.StreamTicket) {
+func (m *MockManager) RequeueMatchRequests(arg0 context.Context, arg1 []*v11.StreamTicket) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "RequeueMatchRequests", arg0, arg1)
 }
@@ -176,7 +177,7 @@ func (mr *MockManagerMockRecorder) RequeueMatchRequests(arg0, arg1 interface{}) 
 }
 
 // StreamAccumulatedMatchRequests mocks base method.
-func (m *MockManager) StreamAccumulatedMatchRequests(arg0 context.Context, arg1 string, arg2 func(context.Context, []*v1.StreamTicket)) error {
+func (m *MockManager) StreamAccumulatedMatchRequests(arg0 context.Context, arg1 string, arg2 func(context.Context, []*v11.StreamTicket)) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StreamAccumulatedMatchRequests", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
@@ -190,7 +191,7 @@ func (mr *MockManagerMockRecorder) StreamAccumulatedMatchRequests(arg0, arg1, ar
 }
 
 // StreamMatchRequests mocks base method.
-func (m *MockManager) StreamMatchRequests(arg0 context.Context, arg1 string, arg2 func(context.Context, *v1.StreamTicket)) error {
+func (m *MockManager) StreamMatchRequests(arg0 context.Context, arg1 string, arg2 func(context.Context, *v11.StreamTicket)) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StreamMatchRequests", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)

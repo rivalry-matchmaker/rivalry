@@ -14,6 +14,7 @@ import (
 	"github.com/rivalry-matchmaker/rivalry/internal/managers/tickets"
 	api "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
 	db "github.com/rivalry-matchmaker/rivalry/pkg/pb/db/v1"
+	stream_pb "github.com/rivalry-matchmaker/rivalry/pkg/pb/stream/v1"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -117,22 +118,19 @@ func (s *MatchRequestManagerTestSuite) TestWatchMatchRequest() {
 }
 
 func (s *MatchRequestManagerTestSuite) TestStreamMatchRequests() {
-	st := &api.StreamTicket{
+	st := &stream_pb.StreamTicket{
 		MatchRequestId:   xid.New().String(),
 		MatchmakingQueue: "everybody",
 		NumberOfPlayers:  1,
 	}
 	stData, err := proto.Marshal(st)
 	t := &api.MatchRequest{Id: st.MatchRequestId}
-	tBytes, err := proto.Marshal(t)
-	require.NoError(s.T(), err)
 	s.streamClient.EXPECT().Subscribe(tickets.GetMatchRequestTopic(st.MatchmakingQueue), gomock.Any()).Do(
 		func(topic string, f func([]byte)) error {
 			f(stData)
 			return nil
 		})
-	s.store.EXPECT().Get(ctx, gomock.Any(), st.MatchRequestId).Return(tBytes, nil)
-	err = s.manager.StreamMatchRequests(ctx, st.MatchmakingQueue, func(ctx context.Context, st *api.StreamTicket, t *db.MatchRequest) {
+	err = s.manager.StreamMatchRequests(ctx, st.MatchmakingQueue, func(ctx context.Context, st *stream_pb.StreamTicket) {
 		assert.Equal(s.T(), st.MatchRequestId, t.Id)
 	})
 	assert.NoError(s.T(), err)
@@ -180,7 +178,7 @@ func (s *MatchRequestManagerTestSuite) TestRequeueMatchRequests() {
 	t2 := &api.MatchRequest{Id: allocatedMatchRequestID, MatchmakingQueue: "everybody"}
 	t2Bytes, err := proto.Marshal(t2)
 	require.NoError(s.T(), err)
-	ts := []*api.StreamTicket{
+	ts := []*stream_pb.StreamTicket{
 		{
 			MatchRequestId:   t1.Id,
 			MatchmakingQueue: t1.MatchmakingQueue,

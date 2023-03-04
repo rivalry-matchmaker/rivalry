@@ -16,6 +16,7 @@ import (
 	"github.com/rivalry-matchmaker/rivalry/internal/db/stream"
 	api "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
 	db "github.com/rivalry-matchmaker/rivalry/pkg/pb/db/v1"
+	stream_pb "github.com/rivalry-matchmaker/rivalry/pkg/pb/stream/v1"
 	"github.com/rs/zerolog/log"
 )
 
@@ -52,13 +53,13 @@ type Manager interface {
 	GetMatchRequest(ctx context.Context, ticketID string) (*db.MatchRequest, error)
 	GetMatchRequests(ctx context.Context, ticketIDs []string) ([]*db.MatchRequest, error)
 	WatchMatchRequest(ctx context.Context, ticketID string, f func(ctx context.Context, t *db.MatchRequest)) error
-	StreamMatchRequests(ctx context.Context, queue string, f func(ctx context.Context, st *api.StreamTicket)) error
-	PublishAccumulatedMatchRequests(ctx context.Context, queue string, sts []*api.StreamTicket) error
-	StreamAccumulatedMatchRequests(ctx context.Context, queue string, f func(ctx context.Context, sts []*api.StreamTicket)) error
+	StreamMatchRequests(ctx context.Context, queue string, f func(ctx context.Context, st *stream_pb.StreamTicket)) error
+	PublishAccumulatedMatchRequests(ctx context.Context, queue string, sts []*stream_pb.StreamTicket) error
+	StreamAccumulatedMatchRequests(ctx context.Context, queue string, f func(ctx context.Context, sts []*stream_pb.StreamTicket)) error
 	AssignMatchRequestsToMatch(ctx context.Context, match *api.Match) (bool, error)
 	ReleaseMatchRequestsFromMatch(ctx context.Context, match *api.Match) error
 	AddAssignmentToMatchRequests(ctx context.Context, assignment *api.GameServer, match *api.Match) error
-	RequeueMatchRequests(ctx context.Context, tickets []*api.StreamTicket)
+	RequeueMatchRequests(ctx context.Context, tickets []*stream_pb.StreamTicket)
 	Close()
 }
 
@@ -77,7 +78,7 @@ func NewManager(kvStore kv.Store, streamClient stream.Client, pubsubClient pubsu
 	}
 }
 
-func (m *manager) publishStreamTicket(ctx context.Context, st *api.StreamTicket) error {
+func (m *manager) publishStreamTicket(ctx context.Context, st *stream_pb.StreamTicket) error {
 	return backoff.Retry(
 		ctx,
 		func() error {
@@ -95,8 +96,8 @@ func (m *manager) publishStreamTicket(ctx context.Context, st *api.StreamTicket)
 	)
 }
 
-func StreamTicketFromDBRequest(request *db.MatchRequest) *api.StreamTicket {
-	return &api.StreamTicket{
+func StreamTicketFromDBRequest(request *db.MatchRequest) *stream_pb.StreamTicket {
+	return &stream_pb.StreamTicket{
 		MatchmakingQueue: request.MatchmakingQueue,
 		MatchRequestId:   request.Id,
 		NumberOfPlayers:  int32(len(request.Members)),
@@ -243,11 +244,11 @@ func (m *manager) GetMatchRequests(ctx context.Context, ticketIDs []string) ([]*
 }
 
 // StreamMatchRequests listens to a stream of tickets that have been submitted and match a given queue
-func (m *manager) StreamMatchRequests(ctx context.Context, queue string, f func(ctx context.Context, st *api.StreamTicket)) error {
+func (m *manager) StreamMatchRequests(ctx context.Context, queue string, f func(ctx context.Context, st *stream_pb.StreamTicket)) error {
 	return m.streamClient.Subscribe(
 		GetMatchRequestTopic(queue),
 		func(b []byte) {
-			st := new(api.StreamTicket)
+			st := new(stream_pb.StreamTicket)
 			err := proto.Unmarshal(b, st)
 			if err != nil {
 				log.Err(err).Msg("unable to unmarshal ticket")
@@ -257,11 +258,11 @@ func (m *manager) StreamMatchRequests(ctx context.Context, queue string, f func(
 		})
 }
 
-func (m *manager) PublishAccumulatedMatchRequests(ctx context.Context, queue string, sts []*api.StreamTicket) error {
+func (m *manager) PublishAccumulatedMatchRequests(ctx context.Context, queue string, sts []*stream_pb.StreamTicket) error {
 	return backoff.Retry(
 		ctx,
 		func() error {
-			streamTicketBytes, err := proto.Marshal(&api.AccumulatedStreamTicket{StreamTickets: sts})
+			streamTicketBytes, err := proto.Marshal(&stream_pb.AccumulatedStreamTicket{StreamTickets: sts})
 			if err != nil {
 				return errors.Wrap(err, "failed to marshal stream ticket")
 			}
@@ -275,11 +276,11 @@ func (m *manager) PublishAccumulatedMatchRequests(ctx context.Context, queue str
 	)
 }
 
-func (m *manager) StreamAccumulatedMatchRequests(ctx context.Context, queue string, f func(ctx context.Context, sts []*api.StreamTicket)) error {
+func (m *manager) StreamAccumulatedMatchRequests(ctx context.Context, queue string, f func(ctx context.Context, sts []*stream_pb.StreamTicket)) error {
 	return m.streamClient.Subscribe(
 		GetAccumulatedMatchRequestTopic(queue),
 		func(b []byte) {
-			st := new(api.AccumulatedStreamTicket)
+			st := new(stream_pb.AccumulatedStreamTicket)
 			err := proto.Unmarshal(b, st)
 			if err != nil {
 				log.Err(err).Msg("unable to unmarshal ticket")
@@ -379,7 +380,7 @@ func (m *manager) AddAssignmentToMatchRequests(ctx context.Context, assignment *
 }
 
 // RequeueMatchRequests resubmits match requests to the stream of submitted tickets
-func (m *manager) RequeueMatchRequests(ctx context.Context, tickets []*api.StreamTicket) {
+func (m *manager) RequeueMatchRequests(ctx context.Context, tickets []*stream_pb.StreamTicket) {
 	// get ticket ids from the match
 	ids := make([]string, len(tickets))
 	for i, t := range tickets {

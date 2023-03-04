@@ -25,7 +25,7 @@ type PairsTestSuite struct {
 }
 
 func (s *PairsTestSuite) SetupTest() {
-	s.service = service.NewPairsMatchmaker(false)
+	s.service = service.NewPairsMatchmaker()
 }
 
 func (s *PairsTestSuite) TestPairs() {

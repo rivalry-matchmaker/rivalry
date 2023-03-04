@@ -22,7 +22,7 @@ type FrontendTestSuite struct {
 
 func (s *FrontendTestSuite) SetupTest() {
 	s.ticketsManager = ticketsMock.NewMockManager(gomock.NewController(s.T()))
-	s.service = frontend.NewService(s.ticketsManager)
+	s.service = frontend.NewService([]string{"default"}, s.ticketsManager)
 }
 
 func (s *FrontendTestSuite) TestClose() {

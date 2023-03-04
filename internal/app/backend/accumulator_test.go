@@ -9,6 +9,7 @@ import (
 	"github.com/rivalry-matchmaker/rivalry/internal/app/backend"
 	ticketsMock "github.com/rivalry-matchmaker/rivalry/internal/managers/tickets/mock"
 	pb "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
+	stream "github.com/rivalry-matchmaker/rivalry/pkg/pb/stream/v1"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
@@ -29,9 +30,8 @@ func (s *AccumulatorTestSuite) SetupTest() {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.ticketsManager = ticketsMock.NewMockManager(gomock.NewController(s.T()))
 	s.config = &backend.AccumulatorConfig{
-		MaxTickets:  2,
-		MaxDelay:    time.Second / 2,
-		MaxBackfill: 1,
+		MaxTickets: 2,
+		MaxDelay:   time.Second / 2,
 	}
 	s.accumulator = backend.NewAccumulator(
 		s.ctx, profileName, s.ticketsManager, s.config)
@@ -40,11 +40,11 @@ func (s *AccumulatorTestSuite) SetupTest() {
 func (s *AccumulatorTestSuite) TestAccumulatorMatchMadeMaxDelay() {
 	t := &pb.MatchRequest{Id: xid.New().String()}
 	s.ticketsManager.EXPECT().StreamMatchRequests(s.ctx, profileName, gomock.Any()).Do(
-		func(ctx context.Context, profile string, f func(ctx context.Context, st *pb.StreamTicket)) {
-			f(ctx, &pb.StreamTicket{MatchmakingQueue: profileName, MatchRequestId: t.Id})
+		func(ctx context.Context, profile string, f func(ctx context.Context, st *stream.StreamTicket)) {
+			f(ctx, &stream.StreamTicket{MatchmakingQueue: profileName, MatchRequestId: t.Id})
 		})
 
-	s.ticketsManager.EXPECT().PublishAccumulatedMatchRequests(s.ctx, gomock.Any())
+	s.ticketsManager.EXPECT().PublishAccumulatedMatchRequests(s.ctx, gomock.Any(), gomock.Any())
 	go func() {
 		time.Sleep(time.Second)
 		s.cancel()
@@ -56,13 +56,13 @@ func (s *AccumulatorTestSuite) TestAccumulatorMatchMadeMaxMatchRequests() {
 	t := &pb.MatchRequest{Id: xid.New().String()}
 	t2 := &pb.MatchRequest{Id: xid.New().String()}
 	s.ticketsManager.EXPECT().StreamMatchRequests(s.ctx, profileName, gomock.Any()).Do(
-		func(ctx context.Context, profile string, f func(ctx context.Context, st *pb.StreamTicket)) {
-			f(ctx, &pb.StreamTicket{MatchmakingQueue: profileName, MatchRequestId: t.Id})
+		func(ctx context.Context, profile string, f func(ctx context.Context, st *stream.StreamTicket)) {
+			f(ctx, &stream.StreamTicket{MatchmakingQueue: profileName, MatchRequestId: t.Id})
 			// send the same ticket again to test deduplication
-			f(ctx, &pb.StreamTicket{MatchmakingQueue: profileName, MatchRequestId: t.Id})
-			f(ctx, &pb.StreamTicket{MatchmakingQueue: profileName, MatchRequestId: t2.Id})
+			f(ctx, &stream.StreamTicket{MatchmakingQueue: profileName, MatchRequestId: t.Id})
+			f(ctx, &stream.StreamTicket{MatchmakingQueue: profileName, MatchRequestId: t2.Id})
 		})
-	s.ticketsManager.EXPECT().PublishAccumulatedMatchRequests(s.ctx, gomock.Any())
+	s.ticketsManager.EXPECT().PublishAccumulatedMatchRequests(s.ctx, gomock.Any(), gomock.Any())
 	go func() {
 		time.Sleep(time.Second / 2)
 		s.cancel()

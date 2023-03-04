@@ -8,6 +8,7 @@ import (
 	"github.com/rivalry-matchmaker/rivalry/internal/managers/tickets"
 	api "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
 	db "github.com/rivalry-matchmaker/rivalry/pkg/pb/db/v1"
+	stream "github.com/rivalry-matchmaker/rivalry/pkg/pb/stream/v1"
 	"github.com/rs/zerolog/log"
 )
 
@@ -36,7 +37,7 @@ func NewMatcher(ctx context.Context, matchmakingQueue string, ticketsManager tic
 }
 
 func (m *matcher) Run() error {
-	err := m.ticketsManager.StreamAccumulatedMatchRequests(m.ctx, m.matchmakingQueue, func(ctx context.Context, sts []*api.StreamTicket) {
+	err := m.ticketsManager.StreamAccumulatedMatchRequests(m.ctx, m.matchmakingQueue, func(ctx context.Context, sts []*stream.StreamTicket) {
 		ids := make([]string, len(sts))
 		for i, v := range sts {
 			ids[i] = v.MatchRequestId
@@ -58,7 +59,7 @@ func (m *matcher) Run() error {
 func (m *matcher) makeMatches(ctx context.Context, matchRequestSlice []*db.MatchRequest) {
 	log.Trace().Msg("makeMatches")
 
-	matchRequestMap := make(map[string]*api.StreamTicket)
+	matchRequestMap := make(map[string]*stream.StreamTicket)
 	for _, mr := range matchRequestSlice {
 		matchRequestMap[mr.Id] = tickets.StreamTicketFromDBRequest(mr)
 	}
@@ -77,7 +78,7 @@ func (m *matcher) makeMatches(ctx context.Context, matchRequestSlice []*db.Match
 		successful, err := m.matchesManager.CreateMatch(ctx, match)
 		if err != nil || !successful {
 			log.Err(err).Msg("failed to create match")
-			matchTickets := make([]*api.StreamTicket, len(match.MatchRequestIds))
+			matchTickets := make([]*stream.StreamTicket, len(match.MatchRequestIds))
 			for i, id := range match.MatchRequestIds {
 				matchTickets[i] = matchRequestMap[id]
 			}
@@ -95,7 +96,7 @@ func (m *matcher) makeMatches(ctx context.Context, matchRequestSlice []*db.Match
 	}
 
 	if len(matchRequestMap) > 0 {
-		requeue := make([]*api.StreamTicket, 0, len(matchRequestMap))
+		requeue := make([]*stream.StreamTicket, 0, len(matchRequestMap))
 		for _, v := range matchRequestMap {
 			requeue = append(requeue, v)
 		}
@@ -105,7 +106,7 @@ func (m *matcher) makeMatches(ctx context.Context, matchRequestSlice []*db.Match
 }
 
 func (m *matcher) requeueAll(ctx context.Context, matchRequestSlice []*db.MatchRequest) {
-	q := make([]*api.StreamTicket, len(matchRequestSlice))
+	q := make([]*stream.StreamTicket, len(matchRequestSlice))
 	for i, v := range matchRequestSlice {
 		q[i] = tickets.StreamTicketFromDBRequest(v)
 	}

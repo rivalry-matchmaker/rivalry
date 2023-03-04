@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/rivalry-matchmaker/rivalry/internal/managers/tickets"
-	api "github.com/rivalry-matchmaker/rivalry/pkg/pb/api/v1"
+	stream "github.com/rivalry-matchmaker/rivalry/pkg/pb/stream/v1"
 
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/rs/zerolog/log"
@@ -30,7 +30,7 @@ type accumulator struct {
 	updateMux         sync.Mutex
 	ctx               context.Context
 	matchRequestsSeen mapset.Set[string]
-	matchRequestSlice []*api.StreamTicket
+	matchRequestSlice []*stream.StreamTicket
 	timeout           *time.Ticker
 }
 
@@ -51,7 +51,7 @@ func NewAccumulator(ctx context.Context, matchmakingQueue string, ticketsManager
 
 // Run is the main method for the service
 func (a *accumulator) Run() error {
-	err := a.ticketsManager.StreamMatchRequests(a.ctx, a.matchmakingQueue, func(ctx context.Context, st *api.StreamTicket) {
+	err := a.ticketsManager.StreamMatchRequests(a.ctx, a.matchmakingQueue, func(ctx context.Context, st *stream.StreamTicket) {
 		log.Trace().Str("match_request_id", st.MatchRequestId).Msg("StreamTickets")
 		a.updateMux.Lock()
 		defer a.updateMux.Unlock()
@@ -94,7 +94,7 @@ func (a *accumulator) watchTimeout() {
 	}
 }
 
-func (a *accumulator) forwardAccumulatedRequests(ctx context.Context, matchRequestSlice []*api.StreamTicket) {
+func (a *accumulator) forwardAccumulatedRequests(ctx context.Context, matchRequestSlice []*stream.StreamTicket) {
 	log.Trace().Int("stream_tickets", len(matchRequestSlice)).Msg("PublishAccumulatedMatchRequests")
 	err := a.ticketsManager.PublishAccumulatedMatchRequests(ctx, a.matchmakingQueue, matchRequestSlice)
 	if err != nil {
@@ -103,6 +103,6 @@ func (a *accumulator) forwardAccumulatedRequests(ctx context.Context, matchReque
 }
 
 func (a *accumulator) resetRun() {
-	a.matchRequestSlice = make([]*api.StreamTicket, 0)
+	a.matchRequestSlice = make([]*stream.StreamTicket, 0)
 	a.matchRequestsSeen = mapset.NewSet[string]()
 }

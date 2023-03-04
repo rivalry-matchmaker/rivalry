@@ -18,10 +18,6 @@
   
     - [RivalryService](#api-v1-RivalryService)
   
-- [api/v1/internal.proto](#api_v1_internal-proto)
-    - [AccumulatedStreamTicket](#api-v1-AccumulatedStreamTicket)
-    - [StreamTicket](#api-v1-StreamTicket)
-  
 - [api/v1/match_logic.proto](#api_v1_match_logic-proto)
     - [MakeAssignmentRequest](#api-v1-MakeAssignmentRequest)
     - [MakeAssignmentResponse](#api-v1-MakeAssignmentResponse)
@@ -41,6 +37,10 @@
     - [MatchRequestData.DoublesEntry](#db-v1-MatchRequestData-DoublesEntry)
     - [MatchRequestData.StringsEntry](#db-v1-MatchRequestData-StringsEntry)
     - [RTT](#db-v1-RTT)
+  
+- [stream/v1/internal.proto](#stream_v1_internal-proto)
+    - [AccumulatedStreamTicket](#stream-v1-AccumulatedStreamTicket)
+    - [StreamTicket](#stream-v1-StreamTicket)
   
 - [Scalar Value Types](#scalar-value-types)
 
@@ -231,54 +231,6 @@
 | Method Name | Request Type | Response Type | Description |
 | ----------- | ------------ | ------------- | ------------|
 | Match | [MatchRequest](#api-v1-MatchRequest) | [MatchResponse](#api-v1-MatchResponse) stream | route into matchmaking |
-
- 
-
-
-
-<a name="api_v1_internal-proto"></a>
-<p align="right"><a href="#top">Top</a></p>
-
-## api/v1/internal.proto
-
-
-
-<a name="api-v1-AccumulatedStreamTicket"></a>
-
-### AccumulatedStreamTicket
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| StreamTickets | [StreamTicket](#api-v1-StreamTicket) | repeated |  |
-
-
-
-
-
-
-<a name="api-v1-StreamTicket"></a>
-
-### StreamTicket
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| matchmaking_queue | [string](#string) |  | which matchmaking queue the match requests belong to |
-| match_request_id | [string](#string) |  | the unique id of the match request |
-| number_of_players | [int32](#int32) |  | the number of players the match request represents |
-
-
-
-
-
- 
-
- 
-
- 
 
  
 
@@ -539,6 +491,54 @@
 | ----- | ---- | ----- | ----------- |
 | host | [string](#string) |  |  |
 | milliseconds | [int64](#int64) |  |  |
+
+
+
+
+
+ 
+
+ 
+
+ 
+
+ 
+
+
+
+<a name="stream_v1_internal-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## stream/v1/internal.proto
+
+
+
+<a name="stream-v1-AccumulatedStreamTicket"></a>
+
+### AccumulatedStreamTicket
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| StreamTickets | [StreamTicket](#stream-v1-StreamTicket) | repeated |  |
+
+
+
+
+
+
+<a name="stream-v1-StreamTicket"></a>
+
+### StreamTicket
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| matchmaking_queue | [string](#string) |  | which matchmaking queue the match requests belong to |
+| match_request_id | [string](#string) |  | the unique id of the match request |
+| number_of_players | [int32](#int32) |  | the number of players the match request represents |
 
 
 
